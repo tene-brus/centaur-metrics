@@ -20,6 +20,11 @@ client = LabelStudio(
     base_url=os.getenv("LABEL_STUDIO_URL"), api_key=os.getenv("LABEL_STUDIO_API_KEY")
 )
 
+OPTIONAL_STATE_FLAGS = [
+    "state_optional_task_flags",
+    "action_optional_task_flags",
+]
+
 
 def get_project_metadata(client: LabelStudio, project_name: str):
     response = client.projects.list()
@@ -31,7 +36,7 @@ def get_project_metadata(client: LabelStudio, project_name: str):
     return item.id, item.members, item.task_number
 
 
-def extract_annotations(annotation_result: dict, specific_field: str | None = None):
+def extract_annotations(annotation_result: dict):
     ids = set()
     for annot in annotation_result:
         ids.add(annot["id"])
@@ -54,23 +59,18 @@ def extract_annotations(annotation_result: dict, specific_field: str | None = No
         elif annot["type"] == "choices":
             value_key = "choices"
 
-            annotations[annot["id"]][field] = annot["value"][value_key][0]
+            if field not in OPTIONAL_STATE_FLAGS:
+                annotations[annot["id"]][field] = annot["value"][value_key][0]
+            else:
+                annotations[annot["id"]][field] = annot["value"][value_key]
 
-    if specific_field is not None:
-        return [value[specific_field] for _, value in annotations.items()]
-    else:
-        return [value for _, value in annotations.items()]
+    return [value for _, value in annotations.items()]
 
 
 def get_project_annotations(
     client: LabelStudio,
     project_name: str | None = None,
-    specific_field: bool = False,
-    field: str | None = None,
 ):
-    if specific_field and not field:
-        raise RuntimeError("If 'specific_field' is True, then field should be a string")
-
     project_id, members, num_tasks = get_project_metadata(
         client=client, project_name=project_name
     )
@@ -85,10 +85,6 @@ def get_project_annotations(
 
     file_name = "_".join(project_name.replace("-", "").lower().split())
 
-    if field:
-        logger.info(f"Extracting on one file per annotation: {field}")
-        file_name += f"_{field}"
-
     with open(f"{file_name}.jsonl", "w", encoding="utf-8") as file:
         for task in tqdm(
             tasks, bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}", total=num_tasks
@@ -102,9 +98,7 @@ def get_project_annotations(
             for i in range(task.annotators_count):
                 try:
                     annotator = task.annotations[i]["completed_by"]["email"].strip()
-                    annotations = extract_annotations(
-                        task.annotations[i]["result"], specific_field=field
-                    )
+                    annotations = extract_annotations(task.annotations[i]["result"])
                     entry[annotator] = annotations
 
                     if task.annotations[i]["ground_truth"]:
@@ -113,9 +107,7 @@ def get_project_annotations(
                             "completed_by"
                         ]["email"].strip()
 
-                    predictions = extract_annotations(
-                        task.predictions[0].result, specific_field=field
-                    )
+                    predictions = extract_annotations(task.predictions[0].result)
                     entry["predictions"] = predictions
 
                 except Exception as e:
@@ -129,18 +121,10 @@ def get_project_annotations(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project_name", type=str, required=True)
-    parser.add_argument("--field", type=str, required=False, default=None)
 
     args = parser.parse_args()
-
-    if args.field:
-        specific_field = True
-    else:
-        specific_field = False
 
     get_project_annotations(
         client,
         project_name=args.project_name,
-        specific_field=specific_field,
-        field=args.field,
     )
