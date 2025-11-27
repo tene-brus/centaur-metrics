@@ -13,6 +13,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+AGREEMENT_FIELDS = [
+    "direction",
+    "position_status",
+    "exposure_change",
+    "state_type",
+    "optional_task_flags",
+]
+
 FIELD_VALUES = {
     "label_type": ["action", "state"],
     "asset_reference_type": [
@@ -213,11 +221,11 @@ class Annotation(BaseModel):
 class ListAnnotations(BaseModel):
     annotations: list[Annotation] = []
 
-    def agreement(self, annotation: type[BaseModel], per_label=False):
-        if per_label:
-            agreement = self._eq_per_label(annotation)
+    def agreement(self, annotation: type[BaseModel], case: str | None):
+        if case:
+            agreement = self._eq_per_label(annotation, case=case)
         else:
-            agreement = self._eq(annotation)
+            agreement = self._eq(annotation, case=case)
 
         return agreement
 
@@ -247,7 +255,7 @@ class ListAnnotations(BaseModel):
 
         return permutations
 
-    def _eq(self, annot_2: list[dict]):
+    def _eq(self, annot_2: list[dict], case: str | None):
         if not isinstance(annot_2, ListAnnotations):
             raise TypeError("Both objects should be of type ListAnnotations.")
 
@@ -305,7 +313,9 @@ class ListAnnotations(BaseModel):
             logger.info(f"  Trades B in group: {trades_B_for_key}")
 
             # Find best matching pairs within this group
-            matches = self._find_best_matches(trades_A_for_key, trades_B_for_key)
+            matches = self._find_best_matches(
+                trades_A_for_key, trades_B_for_key, per_label=case
+            )
 
             for trade_A, trade_B, similarity_score in matches:
                 # Each matched trade contributes:
@@ -329,7 +339,7 @@ class ListAnnotations(BaseModel):
 
         return agreement_score
 
-    def _eq_per_label(self, annot_2: list[dict]):
+    def _eq_per_label(self, annot_2: list[dict], case: str | None):
         if not isinstance(annot_2, ListAnnotations):
             raise TypeError("Both objects should be of type ListAnnotations.")
 
@@ -345,11 +355,24 @@ class ListAnnotations(BaseModel):
 
         # quick resolve of most cases
         if obj_1 == [] and obj_2 == []:
-            return {}
+            if case == "label":
+                return {}
+            elif case == "field":
+                return {field: 0.2 for field in AGREEMENT_FIELDS}
         elif obj_1 == [] and obj_2 != []:
-            return {item: 0 for _, values in FIELD_VALUES.items() for item in values}
+            if case == "label":
+                return {
+                    item: 0 for _, values in FIELD_VALUES.items() for item in values
+                }
+            elif case == "field":
+                return {field: 0 for field in AGREEMENT_FIELDS}
         elif obj_1 != [] and obj_2 == []:
-            return {item: 0 for _, values in FIELD_VALUES.items() for item in values}
+            if case == "label":
+                return {
+                    item: 0 for _, values in FIELD_VALUES.items() for item in values
+                }
+            elif case == "field":
+                return {field: 0 for field in AGREEMENT_FIELDS}
 
         # Group trades by their primary key (asset_reference_type + specific_assets)
         grouped_trades_1: dict[tuple, list[dict]] = {}
@@ -386,22 +409,25 @@ class ListAnnotations(BaseModel):
 
             # Find best matching pairs within this group
             matches = self._find_best_matches(
-                trades_A_for_key, trades_B_for_key, per_label=True
+                trades_A_for_key, trades_B_for_key, per_label=case
             )
 
             for trade_A, trade_B, similarity_score in matches:
-                ##### PER LABEL WORKS UNTIL HERE, MODIFICATIONS NEEDED AFTER THIS STEP
-                # single_trade_pair_total_score = 0.25 + (0.75 * similarity_score)
-                per_label_scores.append(similarity_score[0])
+                score = {
+                    key: 0.05 + (0.75 * value)
+                    for key, value in similarity_score[0].items()
+                }
+                per_label_scores.append(score)
 
-        total_per_label_scores = defaultdict(int)
+        # total_per_label_scores = defaultdict(int)
+        total = defaultdict(float)
+        # count = defaultdict(int)
         for item in per_label_scores:
-            for key in item:
-                total_per_label_scores[key] += item[key]
-        # Normalization: Divide by the maximum number of total trades found by either annotator
-        # max_possible_trades_count = max(len(obj_1), len(obj_2))
+            for key, value in item.items():
+                total[key] += value
+                # count[key] += 1
 
-        return total_per_label_scores
+        return {key: total[key] / len(per_label_scores) for key in total}
 
     def _calculate_annot_similarity_per_label(
         self, annot_1: dict, annot_2: dict
@@ -472,6 +498,54 @@ class ListAnnotations(BaseModel):
         # calculate mean score
         return score / denom
 
+    def _calculate_annot_similarity_per_field(
+        self, annot_1: dict, annot_2: dict
+    ) -> float:
+        temp = {
+            "state_type": 0,
+            "direction": 0,
+            "exposure_change": 0,
+            "position_status": 0,
+            "optional_task_flags": 0,
+        }
+
+        if annot_1.get("state_type") == annot_2.get("state_type"):
+            temp["state_type"] += 1 / 5
+
+        if annot_1.get("direction") == annot_2.get("direction"):
+            temp["direction"] += 1 / 5
+
+        if annot_1.get("exposure_change") == annot_2.get("exposure_change"):
+            temp["exposure_change"] += 1 / 5
+
+        if annot_1.get("position_status") == annot_2.get("position_status"):
+            temp["position_status"] += 1 / 5
+
+        if annot_1.get("optional_task_flags") and annot_2.get("optional_task_flags"):
+            temp_denom = max(
+                len(annot_1.get("optional_task_flags")),
+                len(annot_2.get("optional_task_flags")),
+            )
+            temp_nom = len(
+                set(annot_1.get("optional_task_flags")).intersection(
+                    set(annot_2.get("optional_task_flags"))
+                )
+            )
+            temp["optional_task_flags"] += (temp_nom / temp_denom) / 5
+        elif not annot_1.get("optional_task_flags") and not annot_2.get(
+            "optional_task_flags"
+        ):
+            temp["optional_task_flags"] += 1 / 5
+
+        nom = 0
+        denom = 0
+        for _, value in temp.items():
+            denom += 1
+            nom += value
+
+        # calculate mean score
+        return (temp, nom / denom)
+
     def _get_primary_trade_key(self, trade: dict) -> tuple:
         """Generates a unique primary key for a trade based on asset_reference_type and taxonomy, order-independent."""
         asset_ref_type = trade.get("asset_reference_type")
@@ -486,7 +560,7 @@ class ListAnnotations(BaseModel):
             return (asset_ref_type, None)
 
     def _find_best_matches(
-        self, trades_A: list[dict], trades_B: list[dict], per_label: bool = False
+        self, trades_A: list[dict], trades_B: list[dict], per_label: str | None
     ) -> list[tuple[dict, dict, float]]:
         """Find best matching pairs of trades using a greedy approach."""
         if not trades_A or not trades_B:
@@ -497,8 +571,12 @@ class ListAnnotations(BaseModel):
         for trade_A in trades_A:
             row = []
             for trade_B in trades_B:
-                if per_label:
+                if per_label == "label":
                     similarity = self._calculate_annot_similarity_per_label(
+                        trade_A, trade_B
+                    )
+                elif per_label == "field":
+                    similarity = self._calculate_annot_similarity_per_field(
                         trade_A, trade_B
                     )
                 else:
