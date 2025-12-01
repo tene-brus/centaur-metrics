@@ -95,6 +95,7 @@ def get_project_annotations(
             entry["ground_truth"] = None
             entry["id"] = task.id
             entry["num_annotations"] = len(task.annotations)
+            entry["trader"] = task.data["Trader"]
             for i in range(task.annotators_count):
                 try:
                     annotator = task.annotations[i]["completed_by"]["email"].strip()
