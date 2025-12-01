@@ -7,12 +7,22 @@ from pydantic.experimental.missing_sentinel import MISSING
 
 from cli.utils.valid_tickers import VALID_TICKERS
 
+# ============================================================================
+# LOGGING SETUP
+# ============================================================================
+
 logging.basicConfig(
     level=logging.ERROR,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+# Field names used in agreement calculations
 AGREEMENT_FIELDS = [
     "direction",
     "position_status",
@@ -21,6 +31,7 @@ AGREEMENT_FIELDS = [
     "optional_task_flags",
 ]
 
+# Valid values for each field
 FIELD_VALUES = {
     "label_type": ["action", "state"],
     "asset_reference_type": [
@@ -45,6 +56,33 @@ FIELD_VALUES = {
     "remaining_exposure": ["Some", "None", "Unclear"],
     "state_type": ["Explicit State", "Direct State", "Indirect State"],
 }
+
+# Field normalization mappings
+POSITION_STATUS = [
+    "action_position_status",
+    "state_position_status",
+]
+
+EXPOSURE_CHANGE = [
+    "action_exposure_change",
+    "state_exposure_change",
+]
+
+OPTIONAL_STATE_FLAGS = [
+    "state_optional_task_flags",
+    "action_optional_task_flags",
+]
+
+# Agreement scoring weights
+PRIMARY_KEY_WEIGHT = 0.25  # Weight for matching primary key (asset reference)
+REMAINING_FIELDS_WEIGHT = 0.75  # Weight for remaining fields after primary key match
+PER_LABEL_BASE_SCORE = 0.05  # Base score for per-label calculations
+SIMILARITY_FIELDS_COUNT = 5  # Number of fields used in similarity calculation
+
+
+# ============================================================================
+# ANNOTATION MODEL
+# ============================================================================
 
 
 class Annotation(BaseModel):
@@ -141,70 +179,28 @@ class Annotation(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _check_extract_trade(self):
-        valid_values = ["state", "action"]
-        self._check_function("label_type", valid_values)
+    def _validate_fields(self):
+        """Consolidated validator for all field value checks."""
+        validation_rules = {
+            "label_type": ["state", "action"],
+            "remaining_exposure": ["Some", "None", "Unclear"],
+            "asset_reference_type": FIELD_VALUES["asset_reference_type"],
+            "direction": ["Long", "Short", "Unclear"],
+            "action_exposure_change": ["Increase", "Decrease", "Unclear"],
+            "state_exposure_change": ["No Change", "Unclear"],
+            "action_position_status": [
+                "Clearly a new position",
+                "Clearly an existing position",
+            ],
+            "state_position_status": [
+                "Clearly a new position",
+                "Clearly an existing position",
+            ],
+            "state_type": ["Explicit State", "Direct State", "Indirect State"],
+        }
 
-        return self
-
-    @model_validator(mode="after")
-    def _check_remaining_exposure(self):
-        valid_values = ["Some", "None", "Unclear"]
-        self._check_function("remaining_exposure", valid_values)
-
-        return self
-
-    @model_validator(mode="after")
-    def _check_asset_reference(self):
-        valid_values = [
-            "Specific Asset(s)",
-            "Majors",
-            "DeFi",
-            "AI",
-            "AI Agents",
-            "RWA",
-            "Layer 1",
-            "Layer 2",
-            "Alts",
-            "All Open Positions",
-            "All Long Positions",
-            "All Shorts",
-            "Memes",
-            "Other",
-        ]
-        self._check_function("asset_reference_type", valid_values)
-
-        return self
-
-    @model_validator(mode="after")
-    def _check_direction(self):
-        valid_values = ["Long", "Short", "Unclear"]
-        self._check_function("direction", valid_values)
-
-        return self
-
-    @model_validator(mode="after")
-    def _check_exposure_change(self):
-        valid_values = ["Increase", "Decrease", "Unclear"]
-        self._check_function("action_exposure_change", valid_values)
-
-        valid_values = ["No Change", "Unclear"]
-        self._check_function("state_exposure_change", valid_values)
-
-        return self
-
-    @model_validator(mode="after")
-    def _check_position_status(self):
-        valid_values = ["Clearly a new position", "Clearly an existing position"]
-        self._check_function("action_position_status", valid_values)
-        self._check_function("state_position_status", valid_values)
-
-        return self
-
-    @model_validator(mode="after")
-    def _check_state_type(self):
-        valid_values = ["Explicit State", "Direct State", "Indirect State"]
-        self._check_function("state_type", valid_values)
+        for field_name, valid_values in validation_rules.items():
+            self._check_function(field_name, valid_values)
 
         return self
 
@@ -218,8 +214,17 @@ class Annotation(BaseModel):
                 )
 
 
+# ============================================================================
+# LIST ANNOTATIONS MODEL
+# ============================================================================
+
+
 class ListAnnotations(BaseModel):
     annotations: list[Annotation] = []
+
+    # ------------------------------------------------------------------------
+    # Public Methods
+    # ------------------------------------------------------------------------
 
     def agreement(self, annotation: type[BaseModel], case: str | None):
         if case:
@@ -229,45 +234,37 @@ class ListAnnotations(BaseModel):
 
         return agreement
 
-    def _gen_permutations(self, annot_1: list[dict], annot_2: list[dict]):
-        # rule to avoid very huge permutation loops
-        if len(annot_1) >= 9:
-            annot_1 = annot_1[:8]
+    # ------------------------------------------------------------------------
+    # Helper Methods - Normalization and Grouping
+    # ------------------------------------------------------------------------
 
-        if len(annot_2) >= 9:
-            annot_2 = annot_2[:8]
+    def _normalize_annotations(self, annotations: list[dict]) -> list[dict]:
+        """Normalize annotations by consolidating position_status, exposure_change, and optional_task_flags."""
+        annotations = normalize_position_status(annotations)
+        annotations = normalize_exposure_change(annotations)
+        annotations = normalize_optional_task_flags(annotations)
+        return annotations
 
-        larger, smaller = annot_1, annot_2
-        flip = False
-        if len(annot_1) < len(annot_2):
-            larger, smaller = annot_2, annot_1
-            flip = True
+    def _group_trades_by_key(self, trades: list[dict]) -> dict[tuple, list[dict]]:
+        """Group trades by their primary key (asset_reference_type + specific_assets)."""
+        grouped_trades = {}
+        for trade in trades:
+            key = self._get_primary_trade_key(trade)
+            if key not in grouped_trades:
+                grouped_trades[key] = []
+            grouped_trades[key].append(trade)
+        return grouped_trades
 
-        permutations = []
-        for subset in itertools.permutations(larger, len(smaller)):
-            if flip:
-                # if we swapped them, flip the pairs back
-                pairs = list(zip(smaller, subset))
-            else:
-                pairs = list(zip(subset, smaller))
-
-            permutations.append(pairs)
-
-        return permutations
+    # ------------------------------------------------------------------------
+    # Agreement Calculation Methods
+    # ------------------------------------------------------------------------
 
     def _eq(self, annot_2: list[dict], case: str | None):
         if not isinstance(annot_2, ListAnnotations):
             raise TypeError("Both objects should be of type ListAnnotations.")
 
-        obj_1: list[dict] = self.model_dump()["annotations"]
-        obj_1 = normalize_position_status(obj_1)
-        obj_1 = normalize_exposure_change(obj_1)
-        obj_1 = normalize_optional_task_flags(obj_1)
-
-        obj_2: list[dict] = annot_2.model_dump()["annotations"]
-        obj_2 = normalize_position_status(obj_2)
-        obj_2 = normalize_exposure_change(obj_2)
-        obj_2 = normalize_optional_task_flags(obj_2)
+        obj_1 = self._normalize_annotations(self.model_dump()["annotations"])
+        obj_2 = self._normalize_annotations(annot_2.model_dump()["annotations"])
 
         # quick resolve of most cases
         if obj_1 == [] and obj_2 == []:
@@ -277,22 +274,8 @@ class ListAnnotations(BaseModel):
         elif obj_1 != [] and obj_2 == []:
             return 0.0
 
-        # permutations = self._gen_permutations(obj_1, obj_2)
-
-        # Group trades by their primary key (asset_reference_type + specific_assets)
-        grouped_trades_1: dict[tuple, list[dict]] = {}
-        for trade in obj_1:
-            key = self._get_primary_trade_key(trade)
-            if key not in grouped_trades_1:
-                grouped_trades_1[key] = []
-            grouped_trades_1[key].append(trade)
-
-        grouped_trades_2: dict[tuple, list[dict]] = {}
-        for trade in obj_2:
-            key = self._get_primary_trade_key(trade)
-            if key not in grouped_trades_2:
-                grouped_trades_2[key] = []
-            grouped_trades_2[key].append(trade)
+        grouped_trades_1 = self._group_trades_by_key(obj_1)
+        grouped_trades_2 = self._group_trades_by_key(obj_2)
 
         logger.info(f"Grouped Trades 1: {grouped_trades_1}")
         logger.info(f"Grouped Trades 2: {grouped_trades_2}")
@@ -319,9 +302,11 @@ class ListAnnotations(BaseModel):
 
             for trade_A, trade_B, similarity_score in matches:
                 # Each matched trade contributes:
-                # 0.25 (for the primary key match, as we are in this common group)
-                # PLUS 0.75 * (similarity_score) for the remaining 3 fields
-                single_trade_pair_total_score = 0.25 + (0.75 * similarity_score)
+                # PRIMARY_KEY_WEIGHT (for the primary key match, as we are in this common group)
+                # PLUS REMAINING_FIELDS_WEIGHT * (similarity_score) for the remaining fields
+                single_trade_pair_total_score = PRIMARY_KEY_WEIGHT + (
+                    REMAINING_FIELDS_WEIGHT * similarity_score
+                )
                 total_accumulated_agreement_score += single_trade_pair_total_score
                 logger.info(
                     f"Matched pair in group {primary_key}: Score = {single_trade_pair_total_score}"
@@ -343,15 +328,8 @@ class ListAnnotations(BaseModel):
         if not isinstance(annot_2, ListAnnotations):
             raise TypeError("Both objects should be of type ListAnnotations.")
 
-        obj_1: list[dict] = self.model_dump()["annotations"]
-        obj_1 = normalize_position_status(obj_1)
-        obj_1 = normalize_exposure_change(obj_1)
-        obj_1 = normalize_optional_task_flags(obj_1)
-
-        obj_2: list[dict] = annot_2.model_dump()["annotations"]
-        obj_2 = normalize_position_status(obj_2)
-        obj_2 = normalize_exposure_change(obj_2)
-        obj_2 = normalize_optional_task_flags(obj_2)
+        obj_1 = self._normalize_annotations(self.model_dump()["annotations"])
+        obj_2 = self._normalize_annotations(annot_2.model_dump()["annotations"])
 
         # quick resolve of most cases
         if obj_1 == [] and obj_2 == []:
@@ -374,20 +352,8 @@ class ListAnnotations(BaseModel):
             elif case == "field":
                 return {field: 0 for field in AGREEMENT_FIELDS}
 
-        # Group trades by their primary key (asset_reference_type + specific_assets)
-        grouped_trades_1: dict[tuple, list[dict]] = {}
-        for trade in obj_1:
-            key = self._get_primary_trade_key(trade)
-            if key not in grouped_trades_1:
-                grouped_trades_1[key] = []
-            grouped_trades_1[key].append(trade)
-
-        grouped_trades_2: dict[tuple, list[dict]] = {}
-        for trade in obj_2:
-            key = self._get_primary_trade_key(trade)
-            if key not in grouped_trades_2:
-                grouped_trades_2[key] = []
-            grouped_trades_2[key].append(trade)
+        grouped_trades_1 = self._group_trades_by_key(obj_1)
+        grouped_trades_2 = self._group_trades_by_key(obj_2)
 
         logger.info(f"Grouped Trades 1: {grouped_trades_1}")
         logger.info(f"Grouped Trades 2: {grouped_trades_2}")
@@ -414,20 +380,21 @@ class ListAnnotations(BaseModel):
 
             for trade_A, trade_B, similarity_score in matches:
                 score = {
-                    key: 0.05 + (0.75 * value)
+                    key: PER_LABEL_BASE_SCORE + (REMAINING_FIELDS_WEIGHT * value)
                     for key, value in similarity_score[0].items()
                 }
                 per_label_scores.append(score)
 
-        # total_per_label_scores = defaultdict(int)
         total = defaultdict(float)
-        # count = defaultdict(int)
         for item in per_label_scores:
             for key, value in item.items():
                 total[key] += value
-                # count[key] += 1
 
         return {key: total[key] / len(per_label_scores) for key in total}
+
+    # ------------------------------------------------------------------------
+    # Similarity Calculation Methods
+    # ------------------------------------------------------------------------
 
     def _calculate_annot_similarity_per_label(
         self, annot_1: dict, annot_2: dict
@@ -441,21 +408,21 @@ class ListAnnotations(BaseModel):
             "remaining_exposure",
             "state_type",
         ]
-        aggreement_per_label = {
+        agreement_per_label = {
             item: 0 for _, values in FIELD_VALUES.items() for item in values
         }
         for field in fields:
             if annot_1.get(field):
                 if annot_1.get(field) == annot_2.get(field):
-                    aggreement_per_label[annot_1.get(field)] += 1
+                    agreement_per_label[annot_1.get(field)] += 1
 
         nom = 0
         denom = 0
-        for _, value in aggreement_per_label.items():
+        for _, value in agreement_per_label.items():
             denom += 1
             nom += value
 
-        return (aggreement_per_label, nom / denom)
+        return (agreement_per_label, nom / denom)
 
     def _calculate_annot_similarity(self, annot_1: dict, annot_2: dict) -> float:
         """
@@ -465,7 +432,7 @@ class ListAnnotations(BaseModel):
         Returns a value between 0 and 1.
         """
         score = 0
-        denom = 5
+        denom = SIMILARITY_FIELDS_COUNT
 
         if annot_1.get("state_type") == annot_2.get("state_type"):
             score += 1
@@ -510,16 +477,16 @@ class ListAnnotations(BaseModel):
         }
 
         if annot_1.get("state_type") == annot_2.get("state_type"):
-            temp["state_type"] += 1 / 5
+            temp["state_type"] += 1 / SIMILARITY_FIELDS_COUNT
 
         if annot_1.get("direction") == annot_2.get("direction"):
-            temp["direction"] += 1 / 5
+            temp["direction"] += 1 / SIMILARITY_FIELDS_COUNT
 
         if annot_1.get("exposure_change") == annot_2.get("exposure_change"):
-            temp["exposure_change"] += 1 / 5
+            temp["exposure_change"] += 1 / SIMILARITY_FIELDS_COUNT
 
         if annot_1.get("position_status") == annot_2.get("position_status"):
-            temp["position_status"] += 1 / 5
+            temp["position_status"] += 1 / SIMILARITY_FIELDS_COUNT
 
         if annot_1.get("optional_task_flags") and annot_2.get("optional_task_flags"):
             temp_denom = max(
@@ -531,11 +498,13 @@ class ListAnnotations(BaseModel):
                     set(annot_2.get("optional_task_flags"))
                 )
             )
-            temp["optional_task_flags"] += (temp_nom / temp_denom) / 5
+            temp["optional_task_flags"] += (
+                temp_nom / temp_denom
+            ) / SIMILARITY_FIELDS_COUNT
         elif not annot_1.get("optional_task_flags") and not annot_2.get(
             "optional_task_flags"
         ):
-            temp["optional_task_flags"] += 1 / 5
+            temp["optional_task_flags"] += 1 / SIMILARITY_FIELDS_COUNT
 
         nom = 0
         denom = 0
@@ -545,6 +514,10 @@ class ListAnnotations(BaseModel):
 
         # calculate mean score
         return (temp, nom / denom)
+
+    # ------------------------------------------------------------------------
+    # Trade Matching Methods
+    # ------------------------------------------------------------------------
 
     def _get_primary_trade_key(self, trade: dict) -> tuple:
         """Generates a unique primary key for a trade based on asset_reference_type and taxonomy, order-independent."""
@@ -608,20 +581,9 @@ class ListAnnotations(BaseModel):
         return matches
 
 
-POSITION_STATUS = [
-    "action_position_status",
-    "state_position_status",
-]
-
-EXPOSURE_CHANGE = [
-    "action_exposure_change",
-    "state_exposure_change",
-]
-
-OPTIONAL_STATE_FLAGS = [
-    "state_optional_task_flags",
-    "action_optional_task_flags",
-]
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 
 def normalize_position_status(annotation: dict):
