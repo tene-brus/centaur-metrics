@@ -379,10 +379,15 @@ class ListAnnotations(BaseModel):
             )
 
             for trade_A, trade_B, similarity_score in matches:
-                score = {
-                    key: PER_LABEL_BASE_SCORE + (REMAINING_FIELDS_WEIGHT * value)
-                    for key, value in similarity_score[0].items()
-                }
+                if case == "field":
+                    score = {
+                        key: PER_LABEL_BASE_SCORE + (REMAINING_FIELDS_WEIGHT * value)
+                        for key, value in similarity_score[0].items()
+                    }
+                elif case == "label":
+                    # do nothing essentially
+                    score = similarity_score[0]
+
                 per_label_scores.append(score)
 
         total = defaultdict(float)
