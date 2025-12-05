@@ -70,6 +70,7 @@ def extract_annotations(annotation_result: dict):
 def get_project_annotations(
     client: LabelStudio,
     project_name: str | None = None,
+    output_dir: str | None = None,
 ):
     project_id, members, num_tasks = get_project_metadata(
         client=client, project_name=project_name
@@ -85,10 +86,20 @@ def get_project_annotations(
 
     file_name = "_".join(project_name.replace("-", "").lower().split())
 
-    with open(f"{file_name}.jsonl", "w", encoding="utf-8") as file:
-        for task in tqdm(
-            tasks, bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}", total=num_tasks
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        file_path = os.path.join(output_dir, f"{file_name}.jsonl")
+    else:
+        file_path = f"{file_name}.jsonl"
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        for idx, task in enumerate(
+            tqdm(tasks, bar_format="{l_bar}{bar:10}{r_bar}{bar:-10b}", total=num_tasks)
         ):
+            # Print progress for external tools (e.g., Streamlit)
+            if idx % 100 == 0:
+                print(f"PROGRESS:{idx + 1}/{num_tasks}", flush=True)
+
             entry = {annotator["user"]["email"].strip(): None for annotator in members}
             entry["predictions"] = None
             entry["ground_truth_member"] = None
@@ -118,14 +129,18 @@ def get_project_annotations(
 
             file.write(entry + "\n")
 
+    print(f"PROGRESS:{num_tasks}/{num_tasks}", flush=True)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project_name", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=False, default=None)
 
     args = parser.parse_args()
 
     get_project_annotations(
         client,
         project_name=args.project_name,
+        output_dir=args.output_dir,
     )

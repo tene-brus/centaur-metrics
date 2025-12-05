@@ -23,7 +23,7 @@ def find_merged_csvs(directory: str) -> dict[str, str]:
 
 
 def add_stats(
-    file1: str, file2: str, is_overall_agreement: bool = False
+    file1: str, file2: str, is_overall_agreement: bool = False, is_gt_counts: bool = False
 ) -> pl.DataFrame:
     """Add numeric stats from two CSVs, grouping by trader (and annotator columns)."""
     df1 = pl.read_csv(file1)
@@ -52,17 +52,22 @@ def add_stats(
     # Determine group by columns (string columns that exist in the dataframe)
     group_cols = [col for col in STRING_COLUMNS if col in combined.columns]
 
-    # Determine columns to sum vs mean
-    sum_cols = [col for col in combined.columns if col in SUM_COLUMNS]
-    mean_cols = [
-        col
-        for col in combined.columns
-        if col not in STRING_COLUMNS and col not in SUM_COLUMNS
-    ]
+    if is_gt_counts:
+        # For gt_counts files, sum all numeric columns (they are counts)
+        sum_cols = [col for col in combined.columns if col not in STRING_COLUMNS]
+        agg_exprs = [pl.col(col).sum() for col in sum_cols]
+    else:
+        # Determine columns to sum vs mean
+        sum_cols = [col for col in combined.columns if col in SUM_COLUMNS]
+        mean_cols = [
+            col
+            for col in combined.columns
+            if col not in STRING_COLUMNS and col not in SUM_COLUMNS
+        ]
 
-    # Aggregate: sum task columns, mean for other numeric columns
-    agg_exprs = [pl.col(col).sum() for col in sum_cols]
-    agg_exprs += [pl.col(col).mean() for col in mean_cols]
+        # Aggregate: sum task columns, mean for other numeric columns
+        agg_exprs = [pl.col(col).sum() for col in sum_cols]
+        agg_exprs += [pl.col(col).mean() for col in mean_cols]
 
     aggregated = combined.group_by(group_cols, maintain_order=True).agg(agg_exprs)
 
@@ -90,10 +95,11 @@ def combine_projects(dir1: str, dir2: str, output_dir: str) -> None:
         file1 = merged1[key]
         file2 = merged2[key]
 
-        # Check if this is an overall agreement file
+        # Check if this is an overall agreement file or gt_counts file
         is_overall_agreement = "overall_agreement" in key
+        is_gt_counts = "gt_counts" in key
 
-        combined = add_stats(file1, file2, is_overall_agreement)
+        combined = add_stats(file1, file2, is_overall_agreement, is_gt_counts)
 
         # Create output path preserving subdirectory structure
         output_path = os.path.join(output_dir, key)

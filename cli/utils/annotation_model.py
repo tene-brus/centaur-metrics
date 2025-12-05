@@ -334,21 +334,23 @@ class ListAnnotations(BaseModel):
         # quick resolve of most cases
         if obj_1 == [] and obj_2 == []:
             if case == "label":
-                return {}
+                return ({}, {})
             elif case == "field":
                 return {field: 0.2 for field in AGREEMENT_FIELDS}
         elif obj_1 == [] and obj_2 != []:
             if case == "label":
-                return {
-                    item: 0 for _, values in FIELD_VALUES.items() for item in values
-                }
+                return (
+                    {item: 0 for _, values in FIELD_VALUES.items() for item in values},
+                    {item: 0 for _, values in FIELD_VALUES.items() for item in values},
+                )
             elif case == "field":
                 return {field: 0 for field in AGREEMENT_FIELDS}
         elif obj_1 != [] and obj_2 == []:
             if case == "label":
-                return {
-                    item: 0 for _, values in FIELD_VALUES.items() for item in values
-                }
+                return (
+                    {item: 0 for _, values in FIELD_VALUES.items() for item in values},
+                    {item: 0 for _, values in FIELD_VALUES.items() for item in values},
+                )
             elif case == "field":
                 return {field: 0 for field in AGREEMENT_FIELDS}
 
@@ -364,6 +366,7 @@ class ListAnnotations(BaseModel):
         )
 
         per_label_scores = []
+        per_label_counts = []
 
         for primary_key in all_primary_keys:
             trades_A_for_key = grouped_trades_1.get(primary_key, [])
@@ -384,18 +387,28 @@ class ListAnnotations(BaseModel):
                         key: PER_LABEL_BASE_SCORE + (REMAINING_FIELDS_WEIGHT * value)
                         for key, value in similarity_score[0].items()
                     }
+                    per_label_scores.append(score)
                 elif case == "label":
-                    # do nothing essentially
-                    score = similarity_score[0]
+                    # similarity_score is (agreement_per_label, count_per_label, score)
+                    per_label_scores.append(similarity_score[0])
+                    per_label_counts.append(similarity_score[1])
 
-                per_label_scores.append(score)
-
-        total = defaultdict(float)
-        for item in per_label_scores:
-            for key, value in item.items():
-                total[key] += value
-
-        return {key: total[key] / len(per_label_scores) for key in total}
+        if case == "field":
+            total = defaultdict(float)
+            for item in per_label_scores:
+                for key, value in item.items():
+                    total[key] += value
+            return {key: total[key] / len(per_label_scores) for key in total}
+        elif case == "label":
+            total_agreements = defaultdict(float)
+            total_counts = defaultdict(float)
+            for item in per_label_scores:
+                for key, value in item.items():
+                    total_agreements[key] += value
+            for item in per_label_counts:
+                for key, value in item.items():
+                    total_counts[key] += value
+            return (dict(total_agreements), dict(total_counts))
 
     # ------------------------------------------------------------------------
     # Similarity Calculation Methods
@@ -416,7 +429,16 @@ class ListAnnotations(BaseModel):
         agreement_per_label = {
             item: 0 for _, values in FIELD_VALUES.items() for item in values
         }
+        count_per_label = {
+            item: 0 for _, values in FIELD_VALUES.items() for item in values
+        }
         for field in fields:
+            # Track count for any label that either annotator submitted
+            if annot_1.get(field):
+                count_per_label[annot_1.get(field)] += 1
+            if annot_2.get(field) and annot_2.get(field) != annot_1.get(field):
+                count_per_label[annot_2.get(field)] += 1
+            # Track agreement
             if annot_1.get(field):
                 if annot_1.get(field) == annot_2.get(field):
                     agreement_per_label[annot_1.get(field)] += 1
@@ -427,7 +449,7 @@ class ListAnnotations(BaseModel):
             denom += 1
             nom += value
 
-        return (agreement_per_label, nom / denom)
+        return (agreement_per_label, count_per_label, nom / denom)
 
     def _calculate_annot_similarity(self, annot_1: dict, annot_2: dict) -> float:
         """
@@ -574,7 +596,9 @@ class ListAnnotations(BaseModel):
                 all_pairs.append((i, j, similarity_matrix[i][j]))
 
         # Sort by similarity score in descending order
-        all_pairs.sort(key=lambda x: x[2][1] if per_label else x[2], reverse=True)
+        # For per_label="label", tuple is (agreement, count, score) so index [2]
+        # For per_label="field", tuple is (field_scores, score) so index [1]
+        all_pairs.sort(key=lambda x: x[2][2] if per_label == "label" else (x[2][1] if per_label == "field" else x[2]), reverse=True)
 
         # Greedily match pairs
         for i, j, score in all_pairs:

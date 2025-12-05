@@ -124,8 +124,10 @@ def compute_all_pairwise_scores(
     return scores
 
 
-def aggregate_per_label_scores(scores: dict, annotators: list[str]) -> dict:
-    """Aggregate per-label scores into mean values."""
+def aggregate_per_label_scores(
+    scores: dict, annotators: list[str], case: str, average: bool = True
+) -> dict:
+    """Aggregate per-label scores into mean values or total counts."""
     result = {}
     for annotator in annotators:
         result[annotator] = {}
@@ -133,17 +135,41 @@ def aggregate_per_label_scores(scores: dict, annotators: list[str]) -> dict:
             if annotator_2 == annotator:
                 continue
 
-            result[annotator][annotator_2] = defaultdict(float)
+            if case == "label":
+                # For label case, scores are tuples of (agreements_dict, counts_dict)
+                agreements = defaultdict(float)
+                counts = defaultdict(float)
 
-            n = len(scores[annotator][annotator_2])
-            for item in scores[annotator][annotator_2]:
-                for key, value in item.items():
-                    result[annotator][annotator_2][key] += value
+                for item in scores[annotator][annotator_2]:
+                    agreements_dict, counts_dict = item
+                    for key, value in agreements_dict.items():
+                        agreements[key] += value
+                    for key, value in counts_dict.items():
+                        counts[key] += value
 
-            # Convert to mean
-            result[annotator][annotator_2] = {
-                key: total / n for key, total in result[annotator][annotator_2].items()
-            }
+                if average:
+                    # Compute ratio: agreements / counts (percentage)
+                    result[annotator][annotator_2] = {
+                        key: agreements[key] / counts[key] if counts[key] > 0 else 0.0
+                        for key in agreements.keys()
+                    }
+                else:
+                    # Return raw agreement counts
+                    result[annotator][annotator_2] = dict(agreements)
+            else:
+                # For field case, scores are dicts
+                result[annotator][annotator_2] = defaultdict(float)
+
+                n = len(scores[annotator][annotator_2])
+                for item in scores[annotator][annotator_2]:
+                    for key, value in item.items():
+                        result[annotator][annotator_2][key] += value
+
+                if average:
+                    result[annotator][annotator_2] = {
+                        key: total / n
+                        for key, total in result[annotator][annotator_2].items()
+                    }
 
     return result
 
@@ -221,7 +247,9 @@ def sum_up_per_label_metrics(
     return master_table
 
 
-def sum_up_metrics(result: dict, data: pl.DataFrame, trader: str | None = None) -> pl.DataFrame:
+def sum_up_metrics(
+    result: dict, data: pl.DataFrame, trader: str | None = None
+) -> pl.DataFrame:
     df = pl.DataFrame(schema={key: pl.Float64 for key in result.keys()})
 
     for annotator in result.keys():
@@ -262,12 +290,37 @@ def compute_metrics_for_trader(
     case: str | None,
     common: bool,
     trader: str | None = None,
-) -> pl.DataFrame:
-    """Compute agreement metrics for a single trader (or all data if trader is None)."""
+) -> pl.DataFrame | tuple[pl.DataFrame, pl.DataFrame]:
+    """Compute agreement metrics for a single trader (or all data if trader is None).
+
+    Returns a single DataFrame for case=None or case="field".
+    Returns a tuple of (averaged_df, counts_df) for case="label".
+    """
     scores = compute_all_pairwise_scores(data, annotators, case, common)
 
-    if case:
-        aggregated_result = aggregate_per_label_scores(scores, annotators)
+    if case == "label":
+        aggregated_result = aggregate_per_label_scores(scores, annotators, case, average=True)
+        aggregated_counts = aggregate_per_label_scores(
+            scores, annotators, case, average=False
+        )
+        return (
+            sum_up_per_label_metrics(
+                result=aggregated_result,
+                case=case,
+                data=data,
+                common=common,
+                trader=trader,
+            ),
+            sum_up_per_label_metrics(
+                result=aggregated_counts,
+                case=case,
+                data=data,
+                common=common,
+                trader=trader,
+            ),
+        )
+    elif case == "field":
+        aggregated_result = aggregate_per_label_scores(scores, annotators, case, average=True)
         return sum_up_per_label_metrics(
             result=aggregated_result,
             case=case,
@@ -307,7 +360,7 @@ def run_per_trader(
         if trader_data.shape[0] == 0:
             continue
 
-        trader_table = compute_metrics_for_trader(
+        result = compute_metrics_for_trader(
             trader_data, annotators, case, common, trader
         )
 
@@ -315,18 +368,22 @@ def run_per_trader(
         output_file = os.path.join(subdir, filename)
         print(output_file)
 
-        if case:
+        if case == "label":
+            trader_table, counts_table = result
             trader_table.write_csv(output_file, float_precision=3)
-            # Generate ground truth breakdown for field case
-            if case == "field":
-                create_gt_breakdown(trader_table, output_dir, common, filename)
+            create_gt_counts(counts_table, output_dir, common, filename)
+        elif case == "field":
+            result.write_csv(output_file, float_precision=3)
+            create_gt_breakdown(result, output_dir, common, filename)
         else:
-            trader_table.filter(pl.col("annotator").is_not_null()).write_csv(
+            result.filter(pl.col("annotator").is_not_null()).write_csv(
                 output_file, float_precision=3
             )
 
 
-def create_gt_breakdown(df: pl.DataFrame, output_dir: str, common: bool, filename: str) -> None:
+def create_gt_breakdown(
+    df: pl.DataFrame, output_dir: str, common: bool, filename: str
+) -> None:
     """Create ground truth breakdown CSV from a DataFrame."""
     gt_subdir = os.path.join(
         output_dir, "agreement_per_field", f"gt_breakdown_common_{common}"
@@ -355,6 +412,23 @@ def create_gt_breakdown(df: pl.DataFrame, output_dir: str, common: bool, filenam
 
     print(output_path)
     gt_breakdown.write_csv(output_path, float_precision=3)
+
+
+def create_gt_counts(
+    df: pl.DataFrame, output_dir: str, common: bool, filename: str
+) -> None:
+    """Create ground truth counts CSV from a DataFrame (counts instead of percentages)."""
+    gt_subdir = os.path.join(
+        output_dir, "agreement_per_label", f"gt_counts_common_{common}"
+    )
+    os.makedirs(gt_subdir, exist_ok=True)
+
+    output_path = os.path.join(gt_subdir, filename)
+
+    gt_counts = df.filter(pl.col("secondary_annotator") == "ground_truth")
+
+    print(output_path)
+    gt_counts.write_csv(output_path)
 
 
 def main() -> None:
@@ -409,21 +483,23 @@ def main() -> None:
         subdir = get_output_subdir(args.output_dir, args.case, args.common)
         os.makedirs(subdir, exist_ok=True)
 
-        final_table = compute_metrics_for_trader(
+        result = compute_metrics_for_trader(
             data, annotators, args.case, args.common
         )
         filename = "Total_agreement.csv"
         output_file = os.path.join(subdir, filename)
         print(output_file)
 
-        if args.case == "field":
+        if args.case == "label":
+            final_table, counts_table = result
             final_table.write_csv(output_file, float_precision=3)
-            create_gt_breakdown(final_table, args.output_dir, args.common, filename)
-        elif args.case == "label":
-            final_table.write_csv(output_file, float_precision=3)
+            create_gt_counts(counts_table, args.output_dir, args.common, filename)
+        elif args.case == "field":
+            result.write_csv(output_file, float_precision=3)
+            create_gt_breakdown(result, args.output_dir, args.common, filename)
         else:
             # case is None (overall agreement)
-            final_table.filter(pl.col("annotator").is_not_null()).write_csv(
+            result.filter(pl.col("annotator").is_not_null()).write_csv(
                 output_file, float_precision=3
             )
 

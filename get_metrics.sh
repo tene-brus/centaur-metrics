@@ -38,3 +38,6 @@ python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdow
 
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/common_False/"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/common_True/"
+
+python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/gt_counts_common_False/"
+python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/gt_counts_common_True/"
