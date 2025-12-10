@@ -15,5 +15,6 @@ wheels/
 .DS_Store
 .env
 .python-version
+uv.lock
 
 test.py
