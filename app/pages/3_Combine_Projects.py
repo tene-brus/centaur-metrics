@@ -56,6 +56,12 @@ def count_merged_files(metrics_path: Path) -> int:
 dir1_path = DATA_DIR / dir1
 dir2_path = DATA_DIR / dir2
 
+# Find corresponding JSONL files
+jsonl1_name = dir1.replace("_metrics", ".jsonl")
+jsonl2_name = dir2.replace("_metrics", ".jsonl")
+jsonl1_path = DATA_DIR / jsonl1_name
+jsonl2_path = DATA_DIR / jsonl2_name
+
 merged1 = count_merged_files(dir1_path)
 merged2 = count_merged_files(dir2_path)
 
@@ -77,6 +83,24 @@ with col2:
 if merged1 == 0 or merged2 == 0:
     st.warning("Both projects need merged CSV files. Go to 'Merge CSVs' page first.")
 
+st.subheader("JSONL Files Status")
+col1, col2 = st.columns(2)
+
+with col1:
+    if jsonl1_path.exists():
+        st.success(f"{jsonl1_name}: Found")
+    else:
+        st.warning(f"{jsonl1_name}: Not found")
+
+with col2:
+    if jsonl2_path.exists():
+        st.success(f"{jsonl2_name}: Found")
+    else:
+        st.warning(f"{jsonl2_name}: Not found")
+
+if not jsonl1_path.exists() or not jsonl2_path.exists():
+    st.warning("JSONL files are needed for correct task counts in per-trader rows.")
+
 st.markdown("---")
 
 # Combine button
@@ -91,6 +115,16 @@ if st.button("Combine Projects", type="primary", disabled=(merged1 == 0 or merge
         "--output_dir",
         output_dir,
     ]
+
+    # Add JSONL paths if they exist
+    jsonl_paths = []
+    if jsonl1_path.exists():
+        jsonl_paths.append(str(jsonl1_path))
+    if jsonl2_path.exists():
+        jsonl_paths.append(str(jsonl2_path))
+
+    if jsonl_paths:
+        cmd.extend(["--jsonl_paths"] + jsonl_paths)
 
     st.code(" ".join(cmd), language="bash")
 

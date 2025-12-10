@@ -4,6 +4,14 @@ import os
 
 import polars as pl
 
+# Annotators to exclude from pairwise calculations
+EXCLUDED_ANNOTATORS = [
+    "alissa@zap.xyz",
+    "tony@zap.xyz",
+    "reviewer@zap.xyz",
+    "omarnoureddin99@gmail.com",
+]
+
 
 class DataLoader:
     """
@@ -39,7 +47,9 @@ class DataLoader:
         if self._data is not None:
             return self._data
 
-        data = pl.read_ndjson(self.data_path, infer_schema_length=self.infer_schema_length)
+        data = pl.read_ndjson(
+            self.data_path, infer_schema_length=self.infer_schema_length
+        )
 
         # Drop id column if present
         if "id" in data.columns:
@@ -62,6 +72,8 @@ class DataLoader:
         - Columns containing "@" (email addresses)
         - "predictions" column (model predictions)
         - "ground_truth" column (if present)
+
+        Excludes annotators in EXCLUDED_ANNOTATORS list.
         """
         if self._annotators is not None:
             return self._annotators
@@ -69,11 +81,17 @@ class DataLoader:
         if self._data is None:
             self.load()
 
-        # Email columns + special columns
-        email_cols = [col for col in self._data.columns if "@" in col]
+        # Email columns + special columns, excluding specific annotators
+        email_cols = [
+            col
+            for col in self._data.columns
+            if "@" in col and col not in EXCLUDED_ANNOTATORS
+        ]
         special_cols = ["predictions", "ground_truth"]
 
-        self._annotators = email_cols + [col for col in special_cols if col in self._data.columns]
+        self._annotators = email_cols + [
+            col for col in special_cols if col in self._data.columns
+        ]
         return self._annotators
 
     @property

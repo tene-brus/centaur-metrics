@@ -3,8 +3,12 @@ import os
 
 import polars as pl
 
-STRING_COLUMNS = ["annotator", "trader", "primary_annotator", "secondary_annotator"]
-SUM_COLUMNS = ["prim_annot_tasks", "common_tasks", "num_tasks"]
+from src.io.csv_utils import (
+    STRING_COLUMNS,
+    SUM_COLUMNS,
+    add_per_trader_rows,
+    reorder_columns,
+)
 
 
 def find_merged_csvs(directory: str) -> dict[str, str]:
@@ -23,7 +27,10 @@ def find_merged_csvs(directory: str) -> dict[str, str]:
 
 
 def add_stats(
-    file1: str, file2: str, is_overall_agreement: bool = False, is_gt_counts: bool = False
+    file1: str,
+    file2: str,
+    is_overall_agreement: bool = False,
+    is_gt_counts: bool = False,
 ) -> pl.DataFrame:
     """Add numeric stats from two CSVs, grouping by trader (and annotator columns)."""
     df1 = pl.read_csv(file1)
@@ -74,7 +81,38 @@ def add_stats(
     return aggregated
 
 
-def combine_projects(dir1: str, dir2: str, output_dir: str) -> None:
+def get_combined_trader_task_counts(jsonl_paths: list[str]) -> pl.DataFrame:
+    """Calculate total tasks per trader from multiple JSONL files.
+
+    Also includes a 'Total' row with the total count across all traders and files.
+    """
+    all_traders = []
+    total_count = 0
+
+    for jsonl_path in jsonl_paths:
+        if not os.path.exists(jsonl_path):
+            continue
+        data = pl.read_ndjson(jsonl_path, infer_schema_length=8000)
+        if "trader" not in data.columns:
+            continue
+        all_traders.append(data.select(["trader"]))
+        total_count += len(data)
+
+    if not all_traders:
+        return pl.DataFrame({"trader": [], "total_tasks": []})
+
+    combined = pl.concat(all_traders, how="vertical")
+    per_trader = combined.group_by("trader").agg(pl.len().cast(pl.Int64).alias("total_tasks"))
+
+    # Add a "Total" row with the sum of all tasks
+    total_row = pl.DataFrame({"trader": ["Total"], "total_tasks": [total_count]})
+
+    return pl.concat([per_trader, total_row], how="vertical")
+
+
+def combine_projects(
+    dir1: str, dir2: str, output_dir: str, jsonl_paths: list[str] | None = None
+) -> None:
     """Combine matching merged CSVs from two project directories by adding stats."""
     dir1 = os.path.normpath(dir1)
     dir2 = os.path.normpath(dir2)
@@ -101,6 +139,9 @@ def combine_projects(dir1: str, dir2: str, output_dir: str) -> None:
 
         combined = add_stats(file1, file2, is_overall_agreement, is_gt_counts)
 
+        # Reorder columns with priority columns first
+        combined = reorder_columns(combined)
+
         # Create output path preserving subdirectory structure
         output_path = os.path.join(output_dir, key)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -123,13 +164,18 @@ def combine_projects(dir1: str, dir2: str, output_dir: str) -> None:
             print(f"  {key}")
 
     # Create flattened CSVs with subdirectory names in filename
-    flatten_combined_csvs(output_dir)
+    flatten_combined_csvs(output_dir, jsonl_paths)
 
 
-def flatten_combined_csvs(output_dir: str) -> None:
+def flatten_combined_csvs(output_dir: str, jsonl_paths: list[str] | None = None) -> None:
     """Create flattened CSV files with subdirectory names included in filename."""
     flat_dir = os.path.join(output_dir, "flat")
     os.makedirs(flat_dir, exist_ok=True)
+
+    # Get task counts from JSONL files if provided
+    task_counts = None
+    if jsonl_paths:
+        task_counts = get_combined_trader_task_counts(jsonl_paths)
 
     for root, _, files in os.walk(output_dir):
         # Skip the flat directory itself
@@ -151,8 +197,35 @@ def flatten_combined_csvs(output_dir: str) -> None:
                 src_path = os.path.join(root, file)
                 dst_path = os.path.join(flat_dir, flat_filename)
 
-                # Copy the file
+                # Read the file
                 df = pl.read_csv(src_path)
+
+                # Add per-trader aggregation for per_label and per_field files
+                is_per_label_or_field = "per_label" in file or "per_field" in file
+                is_gt_counts = "gt_counts" in file
+                if is_per_label_or_field:
+                    df = add_per_trader_rows(df, is_gt_counts=is_gt_counts)
+
+                    # Fix task counts from JSONL if provided
+                    if task_counts is not None and "prim_annot_tasks" in df.columns:
+                        all_rows = df.filter(pl.col("primary_annotator") == "ALL")
+                        other_rows = df.filter(pl.col("primary_annotator") != "ALL")
+
+                        all_rows = all_rows.join(
+                            task_counts.rename({"total_tasks": "_jsonl_tasks"}),
+                            on="trader",
+                            how="left",
+                        ).with_columns(
+                            pl.coalesce(
+                                pl.col("_jsonl_tasks"), pl.col("prim_annot_tasks")
+                            ).alias("prim_annot_tasks")
+                        ).drop("_jsonl_tasks").select(df.columns)
+
+                        df = pl.concat([other_rows, all_rows], how="vertical")
+
+                # Reorder columns with priority columns first
+                df = reorder_columns(df)
+
                 print(dst_path)
                 df.write_csv(dst_path, float_precision=3)
 
@@ -179,6 +252,13 @@ def main() -> None:
         default="combined_metrics",
         help="Output directory for combined CSVs",
     )
+    parser.add_argument(
+        "--jsonl_paths",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Paths to source JSONL files for calculating task counts",
+    )
 
     args = parser.parse_args()
 
@@ -190,7 +270,7 @@ def main() -> None:
         print(f"Error: {args.dir2} is not a valid directory")
         return
 
-    combine_projects(args.dir1, args.dir2, args.output_dir)
+    combine_projects(args.dir1, args.dir2, args.output_dir, args.jsonl_paths)
 
 
 if __name__ == "__main__":

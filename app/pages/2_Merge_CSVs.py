@@ -33,6 +33,15 @@ merge_dir = st.selectbox(
 
 metrics_path = DATA_DIR / merge_dir
 
+# Find corresponding JSONL file
+jsonl_name = merge_dir.replace("_metrics", ".jsonl")
+jsonl_path = DATA_DIR / jsonl_name
+
+if jsonl_path.exists():
+    st.success(f"Found JSONL file: {jsonl_name}")
+else:
+    st.warning(f"JSONL file not found: {jsonl_name} - task counts may be incorrect")
+
 # Directories to merge (based on get_metrics.sh)
 MERGE_SUBDIRS = [
     "overall_agreement/common_False",
@@ -79,6 +88,10 @@ if st.button("Merge All", type="primary"):
                 "--directory",
                 str(full_path),
             ]
+
+            # Add JSONL path for per_label and per_field directories
+            if jsonl_path.exists() and ("per_label" in subdir or "per_field" in subdir):
+                cmd.extend(["--jsonl_path", str(jsonl_path)])
 
             try:
                 result = subprocess.run(

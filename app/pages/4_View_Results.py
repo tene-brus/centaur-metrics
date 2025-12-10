@@ -5,6 +5,40 @@ import streamlit as st
 
 st.set_page_config(page_title="View Results", page_icon="📊", layout="wide")
 st.title("View Results")
+
+# Help section explaining file categories
+with st.expander("Understanding the Results", expanded=False):
+    st.markdown("""
+### File Categories
+
+**overall_agreement/** - Pairwise agreement scores between all annotators
+- Shows how often each pair of annotators agreed on their annotations
+
+**agreement_per_field/** - Agreement broken down by annotation field
+- `gt_breakdown_*` files show agreement per field type (e.g., direction, state_type)
+
+**agreement_per_label/** - Agreement broken down by label/category
+- Shows how annotators performed on specific label values
+- `gt_counts_*` files show counts where the annotator agreed with the ground truth
+
+**flat/** - Flattened versions of all files with descriptive filenames
+- Same data as nested folders, but with folder names in the filename for easy access
+
+### Common vs Non-Common Tasks (concerns only rows where one of the annotators is ground_truth)
+- `common_True` = Include tasks where the the annotator's submissions are makred as ground truth 
+- `common_False` = Do not include tasks where the the annotator's submissions are makred as ground truth 
+
+### Special Rows
+- **primary_annotator = "ALL"**: Aggregated metrics for the entire trader (mean of all annotator pairs)
+- **trader = "Total"**: Combined metrics across all traders
+
+### Key Columns
+- `trader`: The trading desk or team being evaluated
+- `primary_annotator` / `secondary_annotator`: The pair of annotators being compared
+- `prim_annot_tasks`: Number of tasks the primary annotator completed
+- `common_tasks`: Number of tasks both annotators completed together
+    """)
+
 st.markdown("---")
 
 # Paths - look in app/data for metrics directories
@@ -25,7 +59,9 @@ if not metrics_dirs:
 
 # Select metrics directory
 selected_dir = st.selectbox(
-    "Select Metrics Directory", [d.name for d in sorted(metrics_dirs)]
+    "Select Metrics Directory",
+    [d.name for d in sorted(metrics_dirs)],
+    help="Choose a project's metrics folder or a combined output",
 )
 
 metrics_path = DATA_DIR / selected_dir
@@ -65,6 +101,12 @@ for f in csv_files:
         file_tree[cat][subcat] = []
     file_tree[cat][subcat].append(f)
 
+# Tip for flat directory
+if "flat" in file_tree:
+    st.info(
+        "**Tip:** Start with the 'flat' category for easy-to-read filenames that include the full path context."
+    )
+
 st.markdown("---")
 
 # Category selection
@@ -72,16 +114,28 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     categories = sorted(file_tree.keys())
-    selected_category = st.selectbox("Category", categories)
+    selected_category = st.selectbox(
+        "Category",
+        categories,
+        help="Type of analysis: overall_agreement, agreement_per_field, agreement_per_label, or flat",
+    )
 
 with col2:
     subcategories = sorted(file_tree.get(selected_category, {}).keys())
-    selected_subcategory = st.selectbox("Subcategory", subcategories)
+    selected_subcategory = st.selectbox(
+        "Subcategory",
+        subcategories,
+        help="common_True/False or specific breakdown type",
+    )
 
 with col3:
     files_in_subcat = file_tree.get(selected_category, {}).get(selected_subcategory, [])
     file_names = sorted([f.name for f in files_in_subcat])
-    selected_file = st.selectbox("File", file_names)
+    selected_file = st.selectbox(
+        "File",
+        file_names,
+        help="Individual trader file or merged_* for all traders combined",
+    )
 
 st.markdown("---")
 
@@ -99,12 +153,28 @@ if selected_file:
             )
         st.subheader(breadcrumb)
 
+        # Column descriptions for common columns
+        COLUMN_DESCRIPTIONS = {
+            "trader": "The trading desk or team being evaluated",
+            "primary_annotator": "First annotator in the pair ('ALL' = aggregated across all pairs)",
+            "secondary_annotator": "Second annotator in the pair (None = aggregated)",
+            "prim_annot_tasks": "Number of tasks completed by the primary annotator",
+            "common_tasks": "Number of tasks where both annotators provided annotations",
+        }
+
         try:
             df = pd.read_csv(file_path)
             original_row_count = len(df)
 
+            # Column descriptions
+            cols_with_desc = [c for c in df.columns if c in COLUMN_DESCRIPTIONS]
+            if cols_with_desc:
+                with st.expander("Column Descriptions", expanded=False, icon="📋"):
+                    for col in cols_with_desc:
+                        st.markdown(f"**{col}**: {COLUMN_DESCRIPTIONS[col]}")
+
             # Filtering section
-            with st.expander("Filter Data", expanded=False):
+            with st.expander("Filter Data", expanded=False, icon="🔍"):
                 filtered_df = df.copy()
 
                 # Get filterable columns (string/categorical columns)
@@ -157,6 +227,7 @@ if selected_file:
                         "Select numeric column to filter",
                         ["None"] + numeric_cols,
                         key="numeric_filter_col",
+                        help="Filter by agreement score or task count ranges",
                     )
 
                     if filter_numeric_col != "None":
@@ -175,19 +246,6 @@ if selected_file:
                                 (filtered_df[filter_numeric_col] >= min_val)
                                 & (filtered_df[filter_numeric_col] <= max_val)
                             ]
-
-                # Text search
-                st.markdown("**Text Search**")
-                search_text = st.text_input("Search in all columns", key="search_text")
-                if search_text:
-                    mask = (
-                        filtered_df.astype(str)
-                        .apply(
-                            lambda x: x.str.contains(search_text, case=False, na=False)
-                        )
-                        .any(axis=1)
-                    )
-                    filtered_df = filtered_df[mask]
 
                 df = filtered_df
 
@@ -212,7 +270,7 @@ if selected_file:
                         st.metric(f"Mean {col_name}", f"{df[col_name].mean():.3f}")
 
             # Show dataframe
-            st.dataframe(df, width=True, height=400)
+            st.dataframe(df, width="stretch", height=400)
 
             # Download button (filtered data)
             csv_data = df.to_csv(index=False)

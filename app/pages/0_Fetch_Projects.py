@@ -1,8 +1,14 @@
+import os
+import selectors
 import subprocess
 import sys
 from pathlib import Path
 
 import streamlit as st
+
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 st.set_page_config(page_title="Fetch Projects", page_icon="📥", layout="wide")
 st.title("Fetch Projects from Label Studio")
@@ -17,10 +23,13 @@ PROJECT_ROOT = APP_DIR.parent
 # Check for .env file
 env_file = PROJECT_ROOT / ".env"
 if not env_file.exists():
+    logger.error("No .env file found in project root")
     st.error(
         "No `.env` file found in project root. Please create one with LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY."
     )
     st.stop()
+
+logger.info("Fetch Projects page loaded")
 
 # Predefined projects (from update_projects.sh)
 PREDEFINED_PROJECTS = [
@@ -54,14 +63,19 @@ st.markdown("---")
 
 def run_fetch_with_progress(project_name: str, progress_bar, status_text):
     """Run fetch command and update progress bar in real-time."""
+    logger.info(f"Starting fetch for project: {project_name}")
+
     cmd = [
         sys.executable,
+        "-u",  # Unbuffered output
         str(PROJECT_ROOT / "cli" / "get_project.py"),
         "--project_name",
         project_name,
         "--output_dir",
         str(DATA_DIR),
     ]
+
+    logger.debug(f"Executing command: {' '.join(cmd)}")
 
     process = subprocess.Popen(
         cmd,
@@ -70,24 +84,76 @@ def run_fetch_with_progress(project_name: str, progress_bar, status_text):
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
 
-    # Read stdout line by line for progress updates
-    for line in iter(process.stdout.readline, ""):
-        line = line.strip()
-        if line.startswith("PROGRESS:"):
-            # Parse "PROGRESS:current/total"
-            progress_str = line.replace("PROGRESS:", "")
-            current, total = map(int, progress_str.split("/"))
-            progress_bar.progress(current / total)
-            status_text.text(f"Fetching task {current}/{total}")
+    logger.debug(f"Subprocess started with PID: {process.pid}")
+
+    stderr_lines = []
+
+    # Use selectors to read both stdout and stderr in real-time
+    sel = selectors.DefaultSelector()
+    sel.register(process.stdout, selectors.EVENT_READ)
+    sel.register(process.stderr, selectors.EVENT_READ)
+
+    try:
+        while process.poll() is None or sel.get_map():
+            for key, _ in sel.select(timeout=0.1):
+                line = key.fileobj.readline()
+                if not line:
+                    sel.unregister(key.fileobj)
+                    continue
+
+                line = line.strip()
+                if key.fileobj == process.stdout:
+                    if line.startswith("PROGRESS:"):
+                        # Parse "PROGRESS:current/total"
+                        progress_str = line.replace("PROGRESS:", "")
+                        current, total = map(int, progress_str.split("/"))
+                        progress_bar.progress(current / total)
+                        status_text.text(f"Fetching task {current}/{total}")
+                        logger.info(f"Progress: {current}/{total}")
+                    elif line:
+                        logger.debug(f"stdout: {line}")
+                else:
+                    # stderr - parse log level from CLI output and log appropriately
+                    if line:
+                        # CLI logs have format: "timestamp [LEVEL] name: message"
+                        if "[ERROR]" in line:
+                            logger.error(f"cli: {line}")
+                            stderr_lines.append(line)
+                        elif "[WARNING]" in line:
+                            logger.warning(f"cli: {line}")
+                        elif "[INFO]" in line:
+                            logger.info(f"cli: {line}")
+                        elif "[DEBUG]" in line:
+                            logger.debug(f"cli: {line}")
+                        else:
+                            # Unknown format, treat as info
+                            logger.info(f"cli: {line}")
+    except Exception as e:
+        logger.error(f"Error reading subprocess output: {e}")
+        status_text.text(f"Error reading output: {e}")
+    finally:
+        sel.close()
 
     process.wait()
-    return process.returncode, process.stderr.read()
+    stderr_output = "\n".join(stderr_lines)
+
+    if process.returncode == 0:
+        logger.info(f"Fetch completed successfully for project: {project_name}")
+    else:
+        logger.error(
+            f"Fetch failed for project: {project_name}, return code: {process.returncode}"
+        )
+
+    return process.returncode, stderr_output
 
 
 # Fetch button
 if st.button("Fetch Project", type="primary"):
+    logger.info(f"User clicked 'Fetch Project' button for: {project_name}")
+
     cmd_display = [
         sys.executable,
         str(PROJECT_ROOT / "cli" / "get_project.py"),
@@ -110,11 +176,13 @@ if st.button("Fetch Project", type="primary"):
         if returncode == 0:
             status_text.text("Complete!")
             st.success(f"Project fetched successfully! Saved to `{output_path}`")
+            logger.info(f"Project saved to: {output_path}")
         else:
             st.error("Error fetching project")
             if stderr:
                 st.code(stderr, language="text")
     except Exception as e:
+        logger.exception(f"Exception during fetch: {e}")
         st.error(f"Error: {e}")
 
 st.markdown("---")
@@ -124,18 +192,27 @@ st.subheader("Fetch All Predefined Projects")
 st.markdown("Fetch all predefined projects at once.")
 
 if st.button("Fetch All", type="secondary"):
+    logger.info(
+        f"User clicked 'Fetch All' button for {len(PREDEFINED_PROJECTS)} projects"
+    )
+
     overall_progress = st.progress(0)
     overall_status = st.empty()
 
     for i, proj in enumerate(PREDEFINED_PROJECTS):
-        overall_status.text(f"Fetching project {i + 1}/{len(PREDEFINED_PROJECTS)}: {proj}")
+        logger.info(f"Fetching project {i + 1}/{len(PREDEFINED_PROJECTS)}: {proj}")
+        overall_status.text(
+            f"Fetching project {i + 1}/{len(PREDEFINED_PROJECTS)}: {proj}"
+        )
 
         st.write(f"**{proj}**")
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         try:
-            returncode, stderr = run_fetch_with_progress(proj, progress_bar, status_text)
+            returncode, stderr = run_fetch_with_progress(
+                proj, progress_bar, status_text
+            )
 
             if returncode != 0:
                 st.warning(f"Warning: {proj} had errors")
@@ -144,10 +221,12 @@ if st.button("Fetch All", type="secondary"):
             else:
                 status_text.text("Done!")
         except Exception as e:
+            logger.exception(f"Exception fetching {proj}: {e}")
             st.warning(f"Error fetching {proj}: {e}")
 
         overall_progress.progress((i + 1) / len(PREDEFINED_PROJECTS))
 
+    logger.info("Fetch All completed")
     overall_status.text("Complete!")
     st.success("All projects fetched!")
 
