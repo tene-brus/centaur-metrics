@@ -259,7 +259,9 @@ display_df = display_df.rename(
 
 # Sort by first selected field descending and reset index
 if selected_fields:
-    display_df = display_df.sort_values(selected_fields[0], ascending=False).reset_index(drop=True)
+    display_df = display_df.sort_values(
+        selected_fields[0], ascending=False
+    ).reset_index(drop=True)
 
 # Show metrics summary
 st.markdown("**Summary Statistics**")
@@ -302,15 +304,25 @@ if selected_trader == "All":
 
     if is_counts_view:
         st.subheader("Aggregated by Annotator (Sum Across All Traders)")
-        agg_df = df.groupby("primary_annotator")[["common_tasks"] + selected_fields].sum().reset_index()
+        agg_df = (
+            df.groupby("primary_annotator")[["common_tasks"] + selected_fields]
+            .sum()
+            .reset_index()
+        )
     else:
         st.subheader("Aggregated by Annotator (Mean Across All Traders)")
         # Sum common_tasks, mean for the rest
-        agg_df = df.groupby("primary_annotator").agg(
-            {**{"common_tasks": "sum"}, **{col: "mean" for col in selected_fields}}
-        ).reset_index()
+        agg_df = (
+            df.groupby("primary_annotator")
+            .agg(
+                {**{"common_tasks": "sum"}, **{col: "mean" for col in selected_fields}}
+            )
+            .reset_index()
+        )
 
-    agg_df = agg_df.rename(columns={"primary_annotator": "Annotator", "common_tasks": "Total Tasks vs GT"})
+    agg_df = agg_df.rename(
+        columns={"primary_annotator": "Annotator", "common_tasks": "Total Tasks vs GT"}
+    )
     agg_df["Total Tasks vs GT"] = agg_df["Total Tasks vs GT"].astype(int)
     agg_df = agg_df.sort_values(selected_fields[0], ascending=False)
 
