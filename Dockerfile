@@ -15,6 +15,9 @@ RUN uv sync --frozen --no-dev
 COPY src/ ./src/
 COPY app/ ./app/
 
+# Ensure data directory exists (app expects this at runtime)
+RUN mkdir -p /app/app/data
+
 # Expose Streamlit default port
 EXPOSE 8501
 
