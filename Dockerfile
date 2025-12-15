@@ -14,6 +14,7 @@ RUN uv sync --frozen --no-dev
 # Copy application code
 COPY src/ ./src/
 COPY app/ ./app/
+COPY cli/ ./cli/
 
 # Ensure data directory exists (app expects this at runtime)
 RUN mkdir -p /app/app/data
