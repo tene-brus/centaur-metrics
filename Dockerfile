@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+WORKDIR /workspace
 
 # Install uv for faster dependency installation
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -17,7 +17,7 @@ COPY app/ ./app/
 COPY cli/ ./cli/
 
 # Ensure data directory exists (app expects this at runtime)
-RUN mkdir -p /app/app/data
+RUN mkdir -p /workspace/app/data
 
 # Expose Streamlit default port
 EXPOSE 8501
