@@ -15,6 +15,8 @@ RUN uv sync --frozen --no-dev
 COPY src/ ./src/
 COPY app/ ./app/
 COPY cli/ ./cli/
+COPY merge_csvs.py ./merge_csvs.py
+COPY combine_projects.py ./combine_projects.py
 
 # Ensure data directory exists (app expects this at runtime)
 RUN mkdir -p /workspace/app/data
