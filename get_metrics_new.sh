@@ -25,7 +25,7 @@ python -m src.cli.metrics --data_path "$DATA_PATH" --output_dir "$METRICS_DIR" -
 python -m src.cli.metrics --data_path "$DATA_PATH" --output_dir "$METRICS_DIR" --case "label" --common --per_trader
 
 # get merges
-python merge_csvs.py --directory "${METRICS_DIR}/overall_agreement/common_False/"
+python merge_csvs.py --directory "${METRICS_DIR}/overall_agreement/"
 
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdown_common_False/" --jsonl_path "$DATA_PATH"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdown_common_True/" --jsonl_path "$DATA_PATH"

@@ -50,7 +50,8 @@ def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> No
 
         dfs.append(df)
 
-    merged = pl.concat(dfs, how="vertical")
+    # Use diagonal concat to handle CSVs with different column sets
+    merged = pl.concat(dfs, how="diagonal")
 
     # Add per-trader aggregation for per_label and per_field directories
     is_per_label_or_field = "per_label" in directory or "per_field" in directory

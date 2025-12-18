@@ -156,10 +156,11 @@ class MetricsPipeline:
     def _get_output_subdir(self) -> str:
         """Get the output subdirectory path based on case and common flags."""
         if self.case is None:
-            case_subdir = "overall_agreement"
+            # Overall agreement doesn't use common suffix
+            return os.path.join(self.output_dir, "overall_agreement")
         else:
             case_subdir = f"agreement_per_{self.case}"
-        return os.path.join(self.output_dir, case_subdir, f"common_{self.common}")
+            return os.path.join(self.output_dir, case_subdir, f"common_{self.common}")
 
     def _sum_up_metrics(
         self,

@@ -1,4 +1,3 @@
-import itertools
 import logging
 from collections import defaultdict
 
@@ -598,7 +597,12 @@ class ListAnnotations(BaseModel):
         # Sort by similarity score in descending order
         # For per_label="label", tuple is (agreement, count, score) so index [2]
         # For per_label="field", tuple is (field_scores, score) so index [1]
-        all_pairs.sort(key=lambda x: x[2][2] if per_label == "label" else (x[2][1] if per_label == "field" else x[2]), reverse=True)
+        all_pairs.sort(
+            key=lambda x: x[2][2]
+            if per_label == "label"
+            else (x[2][1] if per_label == "field" else x[2]),
+            reverse=True,
+        )
 
         # Greedily match pairs
         for i, j, score in all_pairs:
@@ -619,7 +623,9 @@ def normalize_position_status(annotation: dict):
     for field in POSITION_STATUS:
         for annot in annotation:
             if field in annot:
-                annot["position_status"] = annot[field]
+                # Only set if value is not None to avoid overwriting with None
+                if annot[field] is not None:
+                    annot["position_status"] = annot[field]
                 del annot[field]
 
     return annotation
@@ -629,7 +635,9 @@ def normalize_exposure_change(annotation: dict):
     for field in EXPOSURE_CHANGE:
         for annot in annotation:
             if field in annot:
-                annot["exposure_change"] = annot[field]
+                # Only set if value is not None to avoid overwriting with None
+                if annot[field] is not None:
+                    annot["exposure_change"] = annot[field]
                 del annot[field]
 
     return annotation

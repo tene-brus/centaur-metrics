@@ -31,7 +31,7 @@ python metrics.py --data_path "$DATA_PATH" --case "label" --per_trader
 python metrics.py --data_path "$DATA_PATH" --case "label" --common --per_trader
 
 # get merges
-python merge_csvs.py --directory "${METRICS_DIR}/overall_agreement/common_False/"
+python merge_csvs.py --directory "${METRICS_DIR}/overall_agreement/"
 
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdown_common_False/"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdown_common_True/"

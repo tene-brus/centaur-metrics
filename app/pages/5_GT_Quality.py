@@ -5,6 +5,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# Note: Ambiguous labels like "Unclear" are now output as field-specific columns
+# (e.g., "Unclear (direction)", "Unclear (exposure_change)") directly from the metrics pipeline
+
+
 st.set_page_config(page_title="GT Quality", page_icon="🎯", layout="wide")
 st.title("Ground Truth Quality Dashboard")
 st.markdown(
@@ -190,9 +194,12 @@ if df.empty:
     st.warning("No data available after excluding Total rows.")
     st.stop()
 
+# Get list of all annotators for exclusion selector
+all_annotators = sorted(df["primary_annotator"].dropna().unique().tolist())
+
 # Filters
 st.subheader("Filters")
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
     # Trader filter
@@ -202,6 +209,15 @@ with col1:
     )
 
 with col2:
+    # Reviewer exclusion filter
+    excluded_annotators = st.multiselect(
+        "Exclude Reviewers",
+        all_annotators,
+        default=[],
+        help="Select annotators (reviewers) to exclude from the results",
+    )
+
+with col3:
     # Field/Label filter
     if view_type == "Per Field":
         selected_fields = st.multiselect(
@@ -211,17 +227,22 @@ with col2:
             help="Select which fields to display",
         )
     else:
-        # For labels, let user select specific ones (there can be many)
+        # Labels are already disambiguated in column names (e.g., "Unclear (direction)")
+        default_labels = field_columns[:10] if len(field_columns) > 10 else field_columns
         selected_fields = st.multiselect(
             "Labels",
             field_columns,
-            default=field_columns[:10] if len(field_columns) > 10 else field_columns,
+            default=default_labels,
             help="Select which labels to display",
         )
 
 if not selected_fields:
     st.warning("Please select at least one field/label.")
     st.stop()
+
+# Apply reviewer exclusion filter
+if excluded_annotators:
+    df = df[~df["primary_annotator"].isin(excluded_annotators)]
 
 # Apply trader filter
 if selected_trader != "All":
@@ -252,28 +273,31 @@ if is_counts_view:
         if col in display_df.columns:
             display_df[col] = display_df[col].astype(int)
 
-# Rename for clarity
-display_df = display_df.rename(
-    columns={"primary_annotator": "Annotator", "common_tasks": "Tasks vs GT"}
-)
+# Rename metadata columns for clarity (label columns are already properly named)
+rename_cols = {"primary_annotator": "Annotator", "common_tasks": "Tasks vs GT"}
+display_df = display_df.rename(columns=rename_cols)
+
+# Display field names are the same as selected fields (already disambiguated)
+display_field_names = selected_fields
 
 # Sort by first selected field descending and reset index
-if selected_fields:
+if display_field_names:
     display_df = display_df.sort_values(
-        selected_fields[0], ascending=False
+        display_field_names[0], ascending=False
     ).reset_index(drop=True)
 
-# Show metrics summary
+# Show metrics summary (use original field names for data access, display names for labels)
 st.markdown("**Summary Statistics**")
 summary_cols = st.columns(len(selected_fields[:5]))  # Limit to 5 in summary row
 for i, field in enumerate(selected_fields[:5]):
+    display_name = display_field_names[i] if i < len(display_field_names) else field
     with summary_cols[i]:
         if is_counts_view:
             total_val = df[field].sum()
-            st.metric(field, f"{int(total_val):,}")
+            st.metric(display_name, f"{int(total_val):,}")
         else:
             mean_val = df[field].mean()
-            st.metric(field, f"{mean_val:.3f}")
+            st.metric(display_name, f"{mean_val:.3f}")
 
 st.markdown("---")
 
@@ -281,7 +305,7 @@ st.markdown("---")
 if is_counts_view:
     # For counts, no gradient (values aren't 0-1), format as integers
     st.dataframe(
-        display_df.style.format({col: "{:,.0f}" for col in selected_fields}),
+        display_df.style.format({col: "{:,.0f}" for col in display_field_names}),
         use_container_width=True,
         height=400,
     )
@@ -289,11 +313,11 @@ else:
     # For ratios, use gradient and 3 decimal formatting
     st.dataframe(
         display_df.style.background_gradient(
-            subset=selected_fields,
+            subset=display_field_names,
             cmap="RdYlGn",
             vmin=0,
             vmax=1,
-        ).format({col: "{:.3f}" for col in selected_fields}),
+        ).format({col: "{:.3f}" for col in display_field_names}),
         use_container_width=True,
         height=400,
     )
@@ -320,29 +344,29 @@ if selected_trader == "All":
             .reset_index()
         )
 
-    agg_df = agg_df.rename(
-        columns={"primary_annotator": "Annotator", "common_tasks": "Total Tasks vs GT"}
-    )
+    # Rename metadata columns (label columns are already properly named)
+    agg_rename_cols = {"primary_annotator": "Annotator", "common_tasks": "Total Tasks vs GT"}
+    agg_df = agg_df.rename(columns=agg_rename_cols)
     agg_df["Total Tasks vs GT"] = agg_df["Total Tasks vs GT"].astype(int)
-    agg_df = agg_df.sort_values(selected_fields[0], ascending=False)
+    agg_df = agg_df.sort_values(display_field_names[0], ascending=False)
 
     if is_counts_view:
         # Convert to int for counts
-        for col in selected_fields:
+        for col in display_field_names:
             if col in agg_df.columns:
                 agg_df[col] = agg_df[col].astype(int)
         st.dataframe(
-            agg_df.style.format({col: "{:,.0f}" for col in selected_fields}),
+            agg_df.style.format({col: "{:,.0f}" for col in display_field_names}),
             use_container_width=True,
         )
     else:
         st.dataframe(
             agg_df.style.background_gradient(
-                subset=selected_fields,
+                subset=display_field_names,
                 cmap="RdYlGn",
                 vmin=0,
                 vmax=1,
-            ).format({col: "{:.3f}" for col in selected_fields}),
+            ).format({col: "{:.3f}" for col in display_field_names}),
             use_container_width=True,
         )
 

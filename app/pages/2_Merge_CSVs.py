@@ -44,7 +44,7 @@ else:
 
 # Directories to merge (based on get_metrics.sh)
 MERGE_SUBDIRS = [
-    "overall_agreement/common_False",
+    "overall_agreement",
     "agreement_per_field/gt_breakdown_common_False",
     "agreement_per_field/gt_breakdown_common_True",
     "agreement_per_label/common_False",

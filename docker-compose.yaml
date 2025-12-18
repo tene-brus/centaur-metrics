@@ -1,0 +1,10 @@
+services:
+  streamlit:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./app/data:/workspace/app/data
+    restart: unless-stopped

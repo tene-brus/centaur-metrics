@@ -21,3 +21,8 @@ dependencies = [
     "statsmodels>=0.14.5",
     "streamlit>=1.52.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

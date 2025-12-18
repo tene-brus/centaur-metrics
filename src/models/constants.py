@@ -49,7 +49,14 @@ FIELD_VALUES = {
     "state_type": ["Explicit State", "Direct State", "Indirect State"],
 }
 
+# Labels that appear in multiple fields and need field-specific tracking
+# Maps label value -> list of fields where it appears
+AMBIGUOUS_LABELS = {
+    "Unclear": ["direction", "exposure_change", "remaining_exposure"],
+}
+
 # Column names for output CSVs
+# Note: Ambiguous labels are split into field-specific columns (e.g., "Unclear (direction)")
 LABEL_COLUMNS = [
     "action",
     "state",
@@ -69,7 +76,9 @@ LABEL_COLUMNS = [
     "Other",
     "Long",
     "Short",
-    "Unclear",
+    "Unclear (direction)",
+    "Unclear (exposure_change)",
+    "Unclear (remaining_exposure)",
     "Clearly a new position",
     "Clearly an existing position",
     "Increase",
@@ -136,6 +145,7 @@ __all__ = [
     "SIMILARITY_FIELDS_COUNT",
     "AGREEMENT_FIELDS",
     "FIELD_VALUES",
+    "AMBIGUOUS_LABELS",
     "LABEL_COLUMNS",
     "FIELD_COLUMNS",
     "POSITION_STATUS_FIELDS",

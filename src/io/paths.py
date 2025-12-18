@@ -20,7 +20,7 @@ class OutputConfig(BaseModel):
     Configuration for output file paths.
 
     Manages the directory structure for metrics output:
-    - {base_dir}/overall_agreement/common_{True|False}/
+    - {base_dir}/overall_agreement/
     - {base_dir}/agreement_per_field/common_{True|False}/
     - {base_dir}/agreement_per_label/common_{True|False}/
     - {base_dir}/agreement_per_field/gt_breakdown_common_{True|False}/
@@ -64,6 +64,9 @@ class OutputConfig(BaseModel):
     @property
     def output_subdir(self) -> str:
         """Get the full output subdirectory path."""
+        if self.case is None:
+            # Overall agreement doesn't use common suffix
+            return os.path.join(self.base_dir, self.case_subdir)
         return os.path.join(self.base_dir, self.case_subdir, f"common_{self.common}")
 
     @property

@@ -16,7 +16,9 @@ def normalize_position_status(annotations: list[dict]) -> list[dict]:
     for field in POSITION_STATUS_FIELDS:
         for annot in annotations:
             if field in annot:
-                annot["position_status"] = annot[field]
+                # Only set if value is not None to avoid overwriting with None
+                if annot[field] is not None:
+                    annot["position_status"] = annot[field]
                 del annot[field]
     return annotations
 
@@ -26,7 +28,9 @@ def normalize_exposure_change(annotations: list[dict]) -> list[dict]:
     for field in EXPOSURE_CHANGE_FIELDS:
         for annot in annotations:
             if field in annot:
-                annot["exposure_change"] = annot[field]
+                # Only set if value is not None to avoid overwriting with None
+                if annot[field] is not None:
+                    annot["exposure_change"] = annot[field]
                 del annot[field]
     return annotations
 
