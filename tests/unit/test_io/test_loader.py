@@ -7,7 +7,11 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from src.io.loader import DataLoader, EXCLUDED_ANNOTATORS
+from src.io.loader import (
+    DataLoader,
+    load_reviewer_config,
+    get_excluded_annotators,
+)
 
 
 class TestDataLoader:
@@ -104,8 +108,18 @@ class TestDataLoader:
 
         assert "ground_truth" in annotators
 
-    def test_annotators_excludes_excluded_list(self, tmp_path):
-        """Should exclude annotators in EXCLUDED_ANNOTATORS list."""
+    def test_annotators_excludes_configured_annotators(self, tmp_path):
+        """Should exclude annotators based on reviewer_config.json."""
+        # Create a test config file
+        config_path = tmp_path / "reviewer_config.json"
+        config = {
+            "global_exclusions": ["excluded@example.com"],
+            "project_reviewers": {"test": ["project_reviewer@example.com"]},
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test JSONL
         jsonl_path = tmp_path / "test.jsonl"
         content = [
             {
@@ -113,7 +127,8 @@ class TestDataLoader:
                 "trader": "A",
                 "num_annotations": 1,
                 "predictions": [{"direction": "Long"}],
-                "alissa@zap.xyz": [{"direction": "Long"}],  # Excluded
+                "excluded@example.com": [{"direction": "Long"}],  # Global exclusion
+                "project_reviewer@example.com": [{"direction": "Long"}],  # Project reviewer
                 "valid@example.com": [{"direction": "Long"}],
             }
         ]
@@ -121,10 +136,11 @@ class TestDataLoader:
             for item in content:
                 f.write(json.dumps(item) + "\n")
 
-        loader = DataLoader(str(jsonl_path))
+        loader = DataLoader(str(jsonl_path), config_path=str(config_path))
         annotators = loader.annotators
 
-        assert "alissa@zap.xyz" not in annotators
+        assert "excluded@example.com" not in annotators
+        assert "project_reviewer@example.com" not in annotators
         assert "valid@example.com" in annotators
 
     def test_traders_property(self, temp_jsonl_file):
@@ -172,14 +188,104 @@ class TestDataLoader:
         assert loader.base_name == "test_data"
 
 
-class TestExcludedAnnotators:
-    """Tests for EXCLUDED_ANNOTATORS constant."""
+class TestReviewerConfig:
+    """Tests for reviewer config functions."""
 
-    def test_excluded_annotators_not_empty(self):
-        """EXCLUDED_ANNOTATORS should not be empty."""
-        assert len(EXCLUDED_ANNOTATORS) > 0
+    def test_load_reviewer_config_returns_dict(self, tmp_path):
+        """load_reviewer_config should return a dict."""
+        config_path = tmp_path / "reviewer_config.json"
+        config = {
+            "global_exclusions": ["test@example.com"],
+            "project_reviewers": {},
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
 
-    def test_excluded_annotators_contains_known(self):
-        """EXCLUDED_ANNOTATORS should contain known excluded emails."""
-        assert "alissa@zap.xyz" in EXCLUDED_ANNOTATORS
-        assert "tony@zap.xyz" in EXCLUDED_ANNOTATORS
+        result = load_reviewer_config(str(config_path))
+
+        assert isinstance(result, dict)
+        assert "global_exclusions" in result
+
+    def test_load_reviewer_config_uses_specified_path(self, tmp_path):
+        """load_reviewer_config should use specified path when provided and exists."""
+        config_path = tmp_path / "custom_config.json"
+        config = {
+            "global_exclusions": ["custom@example.com"],
+            "project_reviewers": {},
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        result = load_reviewer_config(str(config_path))
+
+        assert result["global_exclusions"] == ["custom@example.com"]
+
+    def test_get_excluded_annotators_returns_global_exclusions(self, tmp_path):
+        """get_excluded_annotators should return global exclusions."""
+        config_path = tmp_path / "reviewer_config.json"
+        config = {
+            "global_exclusions": ["global@example.com"],
+            "project_reviewers": {},
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        result = get_excluded_annotators(config_path=str(config_path))
+
+        assert "global@example.com" in result
+
+    def test_get_excluded_annotators_includes_project_reviewers(self, tmp_path):
+        """get_excluded_annotators should include project-specific reviewers."""
+        config_path = tmp_path / "reviewer_config.json"
+        config = {
+            "global_exclusions": ["global@example.com"],
+            "project_reviewers": {
+                "my_project": ["reviewer@example.com"],
+            },
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        result = get_excluded_annotators(
+            project_name="my_project", config_path=str(config_path)
+        )
+
+        assert "global@example.com" in result
+        assert "reviewer@example.com" in result
+
+    def test_get_excluded_annotators_strips_metrics_suffix(self, tmp_path):
+        """get_excluded_annotators should strip _metrics suffix from project name."""
+        config_path = tmp_path / "reviewer_config.json"
+        config = {
+            "global_exclusions": [],
+            "project_reviewers": {
+                "my_project": ["reviewer@example.com"],
+            },
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        result = get_excluded_annotators(
+            project_name="my_project_metrics", config_path=str(config_path)
+        )
+
+        assert "reviewer@example.com" in result
+
+    def test_get_excluded_annotators_removes_duplicates(self, tmp_path):
+        """get_excluded_annotators should remove duplicate emails."""
+        config_path = tmp_path / "reviewer_config.json"
+        config = {
+            "global_exclusions": ["same@example.com"],
+            "project_reviewers": {
+                "my_project": ["same@example.com"],  # Duplicate
+            },
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        result = get_excluded_annotators(
+            project_name="my_project", config_path=str(config_path)
+        )
+
+        # Should only appear once
+        assert result.count("same@example.com") == 1

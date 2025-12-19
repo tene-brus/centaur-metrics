@@ -194,12 +194,9 @@ if df.empty:
     st.warning("No data available after excluding Total rows.")
     st.stop()
 
-# Get list of all annotators for exclusion selector
-all_annotators = sorted(df["primary_annotator"].dropna().unique().tolist())
-
 # Filters
 st.subheader("Filters")
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
     # Trader filter
@@ -209,15 +206,6 @@ with col1:
     )
 
 with col2:
-    # Reviewer exclusion filter
-    excluded_annotators = st.multiselect(
-        "Exclude Reviewers",
-        all_annotators,
-        default=[],
-        help="Select annotators (reviewers) to exclude from the results",
-    )
-
-with col3:
     # Field/Label filter
     if view_type == "Per Field":
         selected_fields = st.multiselect(
@@ -239,10 +227,6 @@ with col3:
 if not selected_fields:
     st.warning("Please select at least one field/label.")
     st.stop()
-
-# Apply reviewer exclusion filter
-if excluded_annotators:
-    df = df[~df["primary_annotator"].isin(excluded_annotators)]
 
 # Apply trader filter
 if selected_trader != "All":
