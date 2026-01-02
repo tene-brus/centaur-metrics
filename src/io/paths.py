@@ -104,18 +104,12 @@ class OutputConfig(BaseModel):
             filename = f"agreement_{trader}.csv"
         return os.path.join(self.output_subdir, filename)
 
-    def get_gt_breakdown_path(self, trader: str | None = None) -> str:
-        """Get the ground truth breakdown file path."""
-        if trader is None:
-            filename = "Total_agreement.csv"
-        else:
-            filename = f"agreement_{trader}.csv"
+    def get_gt_breakdown_path(self, trader: str) -> str:
+        """Get the ground truth breakdown file path for a trader."""
+        filename = f"agreement_{trader}.csv"
         return os.path.join(self.gt_breakdown_subdir, filename)
 
-    def get_gt_counts_path(self, trader: str | None = None) -> str:
-        """Get the ground truth counts file path."""
-        if trader is None:
-            filename = "Total_agreement.csv"
-        else:
-            filename = f"agreement_{trader}.csv"
+    def get_gt_counts_path(self, trader: str) -> str:
+        """Get the ground truth counts file path for a trader."""
+        filename = f"agreement_{trader}.csv"
         return os.path.join(self.gt_counts_subdir, filename)

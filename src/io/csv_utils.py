@@ -94,3 +94,59 @@ def add_per_trader_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.Data
 
     # Concatenate original dataframe with per-trader rows
     return pl.concat([df, per_trader], how="vertical")
+
+
+def add_total_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.DataFrame:
+    """Add 'Total' rows aggregating across all traders using simple mean.
+
+    For each (primary_annotator, secondary_annotator) pair, creates a row with
+    trader='Total' containing the simple mean of scores across all traders
+    (excluding rows where common_tasks == 0).
+
+    This differs from weighted mean which would give more weight to traders
+    with more tasks.
+    """
+    if "primary_annotator" not in df.columns or "secondary_annotator" not in df.columns:
+        return df
+
+    if "trader" not in df.columns:
+        return df
+
+    # Filter out rows with no common tasks (these have 0.0 scores that shouldn't count)
+    # and exclude any existing Total rows
+    df_with_data = df.filter(
+        (pl.col("common_tasks") > 0) & (pl.col("trader") != "Total")
+    )
+
+    if df_with_data.height == 0:
+        return df
+
+    # Get numeric columns to aggregate
+    numeric_cols = [col for col in df.columns if col not in STRING_COLUMNS]
+
+    if is_gt_counts:
+        # For gt_counts, sum all numeric columns
+        agg_exprs = [pl.col(col).sum() for col in numeric_cols]
+    else:
+        # For agreement scores, use simple mean (not weighted)
+        # Sum task count columns, mean for score columns
+        sum_cols = [col for col in numeric_cols if col in SUM_COLUMNS]
+        mean_cols = [col for col in numeric_cols if col not in SUM_COLUMNS]
+        agg_exprs = [pl.col(col).sum() for col in sum_cols]
+        agg_exprs += [pl.col(col).mean() for col in mean_cols]
+
+    # Aggregate per annotator pair across all traders
+    total_rows = df_with_data.group_by(
+        ["primary_annotator", "secondary_annotator"], maintain_order=True
+    ).agg(agg_exprs)
+
+    # Add trader='Total'
+    total_rows = total_rows.with_columns(pl.lit("Total").alias("trader"))
+
+    # Reorder columns to match original dataframe
+    total_rows = total_rows.select(df.columns)
+
+    # Remove any existing Total rows from original df and add new ones
+    df_without_total = df.filter(pl.col("trader") != "Total")
+
+    return pl.concat([df_without_total, total_rows], how="vertical")

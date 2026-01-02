@@ -6,6 +6,7 @@ import polars as pl
 from src.io.csv_utils import (
     STRING_COLUMNS,
     add_per_trader_rows,
+    add_total_rows,
     reorder_columns,
 )
 
@@ -32,7 +33,11 @@ def get_trader_task_counts(jsonl_path: str) -> pl.DataFrame:
 
 def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> None:
     """Merge all CSVs in a directory and save to parent directory."""
-    csv_files = [f for f in os.listdir(directory) if f.endswith(".csv")]
+    # Exclude Total_agreement.csv - we'll compute Total rows using simple mean instead
+    csv_files = [
+        f for f in os.listdir(directory)
+        if f.endswith(".csv") and f != "Total_agreement.csv"
+    ]
 
     if not csv_files:
         print(f"No CSV files found in {directory}")
@@ -53,11 +58,13 @@ def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> No
     # Use diagonal concat to handle CSVs with different column sets
     merged = pl.concat(dfs, how="diagonal")
 
-    # Add per-trader aggregation for per_label and per_field directories
+    # Add per-trader aggregation and Total rows for per_label and per_field directories
     is_per_label_or_field = "per_label" in directory or "per_field" in directory
     is_gt_counts = "gt_counts" in directory
     if is_per_label_or_field:
         merged = add_per_trader_rows(merged, is_gt_counts=is_gt_counts)
+        # Add Total rows using simple mean (not weighted by task count)
+        merged = add_total_rows(merged, is_gt_counts=is_gt_counts)
 
         # If JSONL path provided, fix task counts from source data
         if jsonl_path and "prim_annot_tasks" in merged.columns:
@@ -82,9 +89,8 @@ def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> No
 
     # Normalize path to handle trailing slashes
     directory = os.path.normpath(directory)
-    parent_dir = os.path.dirname(directory)
     subdir_name = os.path.basename(directory)
-    output_file = os.path.join(parent_dir, f"merged_{subdir_name}.csv")
+    output_file = os.path.join(directory, f"merged_{subdir_name}.csv")
 
     print(output_file)
     merged.write_csv(output_file, float_precision=3)

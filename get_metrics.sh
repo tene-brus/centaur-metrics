@@ -12,21 +12,15 @@ METRICS_DIR="${DATA_PATH%.jsonl}_metrics"
 
 source .venv/bin/activate
 
-# total agreements
+# overall agreement (total and per trader)
 python metrics.py --data_path "$DATA_PATH"
-
-python metrics.py --data_path "$DATA_PATH" --case "field"
-python metrics.py --data_path "$DATA_PATH" --case "field" --common
-
-python metrics.py --data_path "$DATA_PATH" --case "label"
-python metrics.py --data_path "$DATA_PATH" --case "label" --common
-
-# per trader
 python metrics.py --data_path "$DATA_PATH" --per_trader
 
+# per field (per trader only - Total rows computed during merge using simple mean)
 python metrics.py --data_path "$DATA_PATH" --case "field" --per_trader
 python metrics.py --data_path "$DATA_PATH" --case "field" --common --per_trader
 
+# per label (per trader only - Total rows computed during merge using simple mean)
 python metrics.py --data_path "$DATA_PATH" --case "label" --per_trader
 python metrics.py --data_path "$DATA_PATH" --case "label" --common --per_trader
 

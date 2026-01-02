@@ -7,6 +7,7 @@ from src.io.csv_utils import (
     STRING_COLUMNS,
     SUM_COLUMNS,
     add_per_trader_rows,
+    add_total_rows,
     reorder_columns,
 )
 
@@ -200,11 +201,13 @@ def flatten_combined_csvs(output_dir: str, jsonl_paths: list[str] | None = None)
                 # Read the file
                 df = pl.read_csv(src_path)
 
-                # Add per-trader aggregation for per_label and per_field files
+                # Add per-trader aggregation and Total rows for per_label and per_field files
                 is_per_label_or_field = "per_label" in file or "per_field" in file
                 is_gt_counts = "gt_counts" in file
                 if is_per_label_or_field:
                     df = add_per_trader_rows(df, is_gt_counts=is_gt_counts)
+                    # Add Total rows using simple mean (not weighted by task count)
+                    df = add_total_rows(df, is_gt_counts=is_gt_counts)
 
                     # Fix task counts from JSONL if provided
                     if task_counts is not None and "prim_annot_tasks" in df.columns:

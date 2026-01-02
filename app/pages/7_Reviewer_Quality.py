@@ -33,6 +33,7 @@ def load_config() -> dict:
 # Load config
 config = load_config()
 project_reviewers = config.get("project_reviewers", {})
+gt_submitters = config.get("gt_submitters", [])
 
 # Find projects with configured reviewers
 projects_with_reviewers = {
@@ -68,7 +69,9 @@ if not jsonl_path.exists():
 # Calculate error frequency
 with st.spinner("Calculating reviewer error frequency..."):
     data = pl.read_ndjson(str(jsonl_path), infer_schema_length=8000)
-    result = calculate_reviewer_error_frequency(data, reviewer_email, selected_project)
+    result = calculate_reviewer_error_frequency(
+        data, reviewer_email, selected_project, gt_submitters=gt_submitters
+    )
 
 if not result:
     st.error(
@@ -78,12 +81,41 @@ if not result:
 
 st.markdown("---")
 
-# Summary metrics
-st.subheader("Summary")
+# Project-level statistics
+st.subheader("Project Statistics")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric("Total Tasks Reviewed", result.total_tasks)
+    st.metric("Total Project Tasks", result.project_total_tasks)
+
+with col2:
+    st.metric("Tasks Reviewed", result.total_tasks)
+
+with col3:
+    st.metric("Error Frequency", f"{result.error_frequency:.1%}")
+
+# GT Submitter statistics
+if result.gt_submitter_stats:
+    st.markdown("---")
+    st.subheader("GT Submitter Summary")
+    st.markdown("Tasks where each GT submitter provided ground truth.")
+
+    gt_cols = st.columns(len(result.gt_submitter_stats))
+    for idx, (submitter, stats) in enumerate(result.gt_submitter_stats.items()):
+        with gt_cols[idx]:
+            submitter_name = submitter.split("@")[0].capitalize()
+            st.markdown(f"**{submitter_name}** ({submitter})")
+            st.metric("Tasks with GT Submitted", stats["total_submitted"])
+            st.metric("Reviewed by Reviewer", stats["reviewed_by_reviewer"])
+
+st.markdown("---")
+
+# Reviewer error summary
+st.subheader("Reviewer Error Summary")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Tasks Reviewed", result.total_tasks)
 
 with col2:
     st.metric("Tasks with Errors", result.tasks_with_errors)

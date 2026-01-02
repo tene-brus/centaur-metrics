@@ -51,18 +51,26 @@ class MetricsPipeline:
 
         Args:
             per_trader: If True, generate separate CSV for each trader.
-                       If False, generate single Total_agreement.csv.
+                       If False, generate single Total_agreement.csv (only for overall agreement).
         """
         data = self.loader.load()
         annotators = self.loader.annotators
 
         if per_trader:
             self._run_per_trader(data, annotators)
-        else:
+        elif self.case is None:
+            # Only generate Total_agreement.csv for overall agreement case.
+            # For per-field and per-label, Total rows are computed during merge
+            # using simple mean (not weighted), so we skip generating Total_agreement.csv.
             self._run_total(data, annotators)
 
     def _run_total(self, data: pl.DataFrame, annotators: list[str]) -> None:
-        """Run metrics for all data combined."""
+        """Run metrics for all data combined (overall agreement only).
+
+        Note: This method is only called for case=None (overall agreement).
+        For per-field and per-label cases, Total rows are computed during merge
+        using simple mean, so we don't generate Total_agreement.csv for those.
+        """
         scores = self.calculator.calculate_all_pairs(data, annotators)
 
         subdir = self._get_output_subdir()
@@ -70,34 +78,11 @@ class MetricsPipeline:
         filename = "Total_agreement.csv"
         output_file = os.path.join(subdir, filename)
 
-        if self.case is None:
-            # Overall agreement
-            result = self._sum_up_metrics(scores, data, trader=None)
-            result.filter(pl.col("annotator").is_not_null()).write_csv(
-                output_file, float_precision=3
-            )
-        elif self.case == "label":
-            aggregated = self.calculator.aggregate_per_label_scores(
-                scores, annotators, average=True
-            )
-            aggregated_counts = self.calculator.aggregate_per_label_scores(
-                scores, annotators, average=False
-            )
-
-            result = self._sum_up_per_label_metrics(aggregated, data, trader=None)
-            result.write_csv(output_file, float_precision=3)
-
-            counts_result = self._sum_up_per_label_metrics(
-                aggregated_counts, data, trader=None
-            )
-            self._create_gt_counts(counts_result, filename)
-        else:  # field
-            aggregated = self.calculator.aggregate_per_label_scores(
-                scores, annotators, average=True
-            )
-            result = self._sum_up_per_label_metrics(aggregated, data, trader=None)
-            result.write_csv(output_file, float_precision=3)
-            self._create_gt_breakdown(result, filename)
+        # Overall agreement
+        result = self._sum_up_metrics(scores, data, trader=None)
+        result.filter(pl.col("annotator").is_not_null()).write_csv(
+            output_file, float_precision=3
+        )
 
         print(output_file)
 

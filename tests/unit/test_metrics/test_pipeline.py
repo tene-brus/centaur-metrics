@@ -207,21 +207,29 @@ class TestPipelineIntegration:
         return str(jsonl_path)
 
     def test_run_with_field_case(self, sample_jsonl_file, tmp_path):
-        """Should run successfully with field case."""
+        """Should run successfully with field case (per_trader=True).
+
+        Note: For field/label cases, we only run per_trader=True.
+        Total rows are computed during merge using simple mean.
+        """
         output_dir = str(tmp_path / "metrics_output")
         pipeline = MetricsPipeline(sample_jsonl_file, case="field", output_dir=output_dir)
 
-        pipeline.run(per_trader=False)
+        pipeline.run(per_trader=True)
 
         subdir = os.path.join(output_dir, "agreement_per_field", "common_False")
         assert os.path.exists(subdir)
 
     def test_run_with_label_case(self, sample_jsonl_file, tmp_path):
-        """Should run successfully with label case."""
+        """Should run successfully with label case (per_trader=True).
+
+        Note: For field/label cases, we only run per_trader=True.
+        Total rows are computed during merge using simple mean.
+        """
         output_dir = str(tmp_path / "metrics_output")
         pipeline = MetricsPipeline(sample_jsonl_file, case="label", output_dir=output_dir)
 
-        pipeline.run(per_trader=False)
+        pipeline.run(per_trader=True)
 
         subdir = os.path.join(output_dir, "agreement_per_label", "common_False")
         assert os.path.exists(subdir)

@@ -479,7 +479,10 @@ def main() -> None:
     # Generate output based on mode
     if args.per_trader:
         run_per_trader(data, annotators, args.case, args.common, args.output_dir)
-    else:
+    elif args.case is None:
+        # Only generate Total_agreement.csv for overall agreement case.
+        # For per-field and per-label, Total rows are computed during merge
+        # using simple mean (not weighted), so we skip generating Total_agreement.csv.
         subdir = get_output_subdir(args.output_dir, args.case, args.common)
         os.makedirs(subdir, exist_ok=True)
 
@@ -490,18 +493,9 @@ def main() -> None:
         output_file = os.path.join(subdir, filename)
         print(output_file)
 
-        if args.case == "label":
-            final_table, counts_table = result
-            final_table.write_csv(output_file, float_precision=3)
-            create_gt_counts(counts_table, args.output_dir, args.common, filename)
-        elif args.case == "field":
-            result.write_csv(output_file, float_precision=3)
-            create_gt_breakdown(result, args.output_dir, args.common, filename)
-        else:
-            # case is None (overall agreement)
-            result.filter(pl.col("annotator").is_not_null()).write_csv(
-                output_file, float_precision=3
-            )
+        result.filter(pl.col("annotator").is_not_null()).write_csv(
+            output_file, float_precision=3
+        )
 
 
 if __name__ == "__main__":

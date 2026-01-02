@@ -23,6 +23,9 @@ class ReviewerErrorFrequency:
     tasks_with_errors: int
     error_frequency: float  # tasks_with_errors / total_tasks
     per_trader: dict[str, dict]  # trader -> {total, errors, frequency}
+    # Project-level statistics
+    project_total_tasks: int = 0  # Total tasks in the project
+    gt_submitter_stats: dict[str, dict] = None  # GT submitter -> {total_submitted, reviewed_by_reviewer}
 
 
 def annotations_match(trades_a: list[dict], trades_b: list[dict]) -> bool:
@@ -58,6 +61,7 @@ def calculate_reviewer_error_frequency(
     data: pl.DataFrame,
     reviewer_email: str,
     project_name: str = "",
+    gt_submitters: list[str] | None = None,
 ) -> ReviewerErrorFrequency | None:
     """Calculate reviewer error frequency.
 
@@ -67,6 +71,7 @@ def calculate_reviewer_error_frequency(
         data: Polars DataFrame with annotations
         reviewer_email: Email of the reviewer to analyze
         project_name: Name of the project (for reporting)
+        gt_submitters: List of GT submitter emails to track stats for
 
     Returns:
         ReviewerErrorFrequency with error counts and frequency
@@ -76,6 +81,30 @@ def calculate_reviewer_error_frequency(
 
     if "ground_truth" not in data.columns:
         return None
+
+    # Calculate project-level statistics
+    project_total_tasks = data.shape[0]
+
+    # Calculate GT submitter statistics
+    gt_submitter_stats: dict[str, dict] = {}
+    if gt_submitters and "ground_truth_member" in data.columns:
+        for submitter in gt_submitters:
+            # Count tasks where this submitter provided GT
+            tasks_submitted = data.filter(
+                pl.col("ground_truth_member") == submitter
+            ).shape[0]
+
+            # Count tasks where this submitter provided GT AND reviewer reviewed
+            tasks_reviewed_by_reviewer = data.filter(
+                (pl.col("ground_truth_member") == submitter)
+                & pl.col(reviewer_email).is_not_null()
+                & pl.col("ground_truth").is_not_null()
+            ).shape[0]
+
+            gt_submitter_stats[submitter] = {
+                "total_submitted": tasks_submitted,
+                "reviewed_by_reviewer": tasks_reviewed_by_reviewer,
+            }
 
     # Filter to rows where both reviewer and GT exist
     filtered = data.filter(
@@ -131,6 +160,8 @@ def calculate_reviewer_error_frequency(
         tasks_with_errors=tasks_with_errors,
         error_frequency=error_frequency,
         per_trader=per_trader,
+        project_total_tasks=project_total_tasks,
+        gt_submitter_stats=gt_submitter_stats if gt_submitter_stats else None,
     )
 
 
