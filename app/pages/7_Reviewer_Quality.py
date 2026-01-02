@@ -33,7 +33,7 @@ def load_config() -> dict:
 # Load config
 config = load_config()
 project_reviewers = config.get("project_reviewers", {})
-gt_submitters = config.get("gt_submitters", [])
+gt_verifiers = config.get("gt_verifiers", [])
 
 # Find projects with configured reviewers
 projects_with_reviewers = {
@@ -70,7 +70,7 @@ if not jsonl_path.exists():
 with st.spinner("Calculating reviewer error frequency..."):
     data = pl.read_ndjson(str(jsonl_path), infer_schema_length=8000)
     result = calculate_reviewer_error_frequency(
-        data, reviewer_email, selected_project, gt_submitters=gt_submitters
+        data, reviewer_email, selected_project, gt_verifiers=gt_verifiers
     )
 
 if not result:
@@ -94,18 +94,18 @@ with col2:
 with col3:
     st.metric("Error Frequency", f"{result.error_frequency:.1%}")
 
-# GT Submitter statistics
-if result.gt_submitter_stats:
+# GT Verifier statistics
+if result.gt_verifier_stats:
     st.markdown("---")
-    st.subheader("GT Submitter Summary")
-    st.markdown("Tasks where each GT submitter provided ground truth.")
+    st.subheader("GT Verifier Summary")
+    st.markdown("Tasks where each GT verifier provided ground truth.")
 
-    gt_cols = st.columns(len(result.gt_submitter_stats))
-    for idx, (submitter, stats) in enumerate(result.gt_submitter_stats.items()):
+    gt_cols = st.columns(len(result.gt_verifier_stats))
+    for idx, (verifier, stats) in enumerate(result.gt_verifier_stats.items()):
         with gt_cols[idx]:
-            submitter_name = submitter.split("@")[0].capitalize()
-            st.markdown(f"**{submitter_name}** ({submitter})")
-            st.metric("Tasks with GT Submitted", stats["total_submitted"])
+            verifier_name = verifier.split("@")[0].capitalize()
+            st.markdown(f"**{verifier_name}** ({verifier})")
+            st.metric("Tasks with GT Verified", stats["total_verified"])
             st.metric("Reviewed by Reviewer", stats["reviewed_by_reviewer"])
 
 st.markdown("---")

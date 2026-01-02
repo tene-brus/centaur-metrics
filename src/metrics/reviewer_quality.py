@@ -25,7 +25,9 @@ class ReviewerErrorFrequency:
     per_trader: dict[str, dict]  # trader -> {total, errors, frequency}
     # Project-level statistics
     project_total_tasks: int = 0  # Total tasks in the project
-    gt_submitter_stats: dict[str, dict] = None  # GT submitter -> {total_submitted, reviewed_by_reviewer}
+    gt_verifier_stats: dict[str, dict] = (
+        None  # GT verifier -> {total_verified, reviewed_by_reviewer}
+    )
 
 
 def annotations_match(trades_a: list[dict], trades_b: list[dict]) -> bool:
@@ -61,7 +63,7 @@ def calculate_reviewer_error_frequency(
     data: pl.DataFrame,
     reviewer_email: str,
     project_name: str = "",
-    gt_submitters: list[str] | None = None,
+    gt_verifiers: list[str] | None = None,
 ) -> ReviewerErrorFrequency | None:
     """Calculate reviewer error frequency.
 
@@ -71,7 +73,7 @@ def calculate_reviewer_error_frequency(
         data: Polars DataFrame with annotations
         reviewer_email: Email of the reviewer to analyze
         project_name: Name of the project (for reporting)
-        gt_submitters: List of GT submitter emails to track stats for
+        gt_verifiers: List of GT verifier emails to track stats for
 
     Returns:
         ReviewerErrorFrequency with error counts and frequency
@@ -85,24 +87,24 @@ def calculate_reviewer_error_frequency(
     # Calculate project-level statistics
     project_total_tasks = data.shape[0]
 
-    # Calculate GT submitter statistics
-    gt_submitter_stats: dict[str, dict] = {}
-    if gt_submitters and "ground_truth_member" in data.columns:
-        for submitter in gt_submitters:
-            # Count tasks where this submitter provided GT
-            tasks_submitted = data.filter(
-                pl.col("ground_truth_member") == submitter
+    # Calculate GT verifier statistics
+    gt_verifier_stats: dict[str, dict] = {}
+    if gt_verifiers and "ground_truth_member" in data.columns:
+        for verifier in gt_verifiers:
+            # Count tasks where this verifier provided GT
+            tasks_verified = data.filter(
+                pl.col("ground_truth_member") == verifier
             ).shape[0]
 
-            # Count tasks where this submitter provided GT AND reviewer reviewed
+            # Count tasks where this verifier provided GT AND reviewer reviewed
             tasks_reviewed_by_reviewer = data.filter(
-                (pl.col("ground_truth_member") == submitter)
+                (pl.col("ground_truth_member") == verifier)
                 & pl.col(reviewer_email).is_not_null()
                 & pl.col("ground_truth").is_not_null()
             ).shape[0]
 
-            gt_submitter_stats[submitter] = {
-                "total_submitted": tasks_submitted,
+            gt_verifier_stats[verifier] = {
+                "total_verified": tasks_verified,
                 "reviewed_by_reviewer": tasks_reviewed_by_reviewer,
             }
 
@@ -161,7 +163,7 @@ def calculate_reviewer_error_frequency(
         error_frequency=error_frequency,
         per_trader=per_trader,
         project_total_tasks=project_total_tasks,
-        gt_submitter_stats=gt_submitter_stats if gt_submitter_stats else None,
+        gt_verifier_stats=gt_verifier_stats if gt_verifier_stats else None,
     )
 
 
