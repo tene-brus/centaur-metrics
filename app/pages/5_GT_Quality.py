@@ -102,42 +102,38 @@ elif view_type == "Per Label (Counts)" and not has_counts_data:
 
 
 def load_gt_data(base_path: Path, combined_path: Path, pattern: str) -> pd.DataFrame:
-    """Load and combine all GT comparison CSVs from a directory.
+    """Load GT comparison data from merged CSV file only.
 
-    Handles both regular structure (multiple CSVs in subdirectory) and
-    combined structure (merged CSV in parent directory).
+    Only loads merged files to avoid double-counting from individual trader files.
     """
-    csv_files = []
+    merged_file = None
 
-    # Check regular structure first
+    # Check for merged file in base_path
     if base_path.exists():
-        csv_files = list(base_path.glob("*.csv"))
+        merged_files = list(base_path.glob("merged_*.csv"))
+        if merged_files:
+            merged_file = merged_files[0]
 
-    # If no files, check combined structure
-    if not csv_files and combined_path.exists():
-        csv_files = list(combined_path.glob(pattern))
+    # If no merged file in base_path, check combined structure
+    if not merged_file and combined_path.exists():
+        merged_files = list(combined_path.glob(pattern))
+        if merged_files:
+            merged_file = merged_files[0]
 
-    if not csv_files:
+    if not merged_file:
         return pd.DataFrame()
 
-    dfs = []
-    for f in csv_files:
-        try:
-            df = pd.read_csv(f)
-            # Filter to only GT comparisons
-            if "secondary_annotator" in df.columns:
-                df = df[df["secondary_annotator"] == "ground_truth"]
-            # Exclude rows where common_tasks is 0 (no GT comparisons)
-            if "common_tasks" in df.columns:
-                df = df[df["common_tasks"] > 0]
-            dfs.append(df)
-        except Exception:
-            continue
-
-    if not dfs:
+    try:
+        df = pd.read_csv(merged_file)
+        # Filter to only GT comparisons
+        if "secondary_annotator" in df.columns:
+            df = df[df["secondary_annotator"] == "ground_truth"]
+        # Exclude rows where common_tasks is 0 (no GT comparisons)
+        if "common_tasks" in df.columns:
+            df = df[df["common_tasks"] > 0]
+        return df
+    except Exception:
         return pd.DataFrame()
-
-    return pd.concat(dfs, ignore_index=True)
 
 
 # Load data based on view type
@@ -184,7 +180,9 @@ else:  # Per Label (Counts)
     field_columns = [c for c in df.columns if c not in metadata_cols]
 
 if df.empty:
-    st.warning("No data available.")
+    st.warning(
+        "No merged data file found. Run the merge script first to generate merged CSV files."
+    )
     st.stop()
 
 # Exclude "Total" rows from everywhere
@@ -216,7 +214,9 @@ with col2:
         )
     else:
         # Labels are already disambiguated in column names (e.g., "Unclear (direction)")
-        default_labels = field_columns[:10] if len(field_columns) > 10 else field_columns
+        default_labels = (
+            field_columns[:10] if len(field_columns) > 10 else field_columns
+        )
         selected_fields = st.multiselect(
             "Labels",
             field_columns,
@@ -329,7 +329,10 @@ if selected_trader == "All":
         )
 
     # Rename metadata columns (label columns are already properly named)
-    agg_rename_cols = {"primary_annotator": "Annotator", "common_tasks": "Total Tasks vs GT"}
+    agg_rename_cols = {
+        "primary_annotator": "Annotator",
+        "common_tasks": "Total Tasks vs GT",
+    }
     agg_df = agg_df.rename(columns=agg_rename_cols)
     agg_df["Total Tasks vs GT"] = agg_df["Total Tasks vs GT"].astype(int)
     agg_df = agg_df.sort_values(display_field_names[0], ascending=False)

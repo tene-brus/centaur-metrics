@@ -131,10 +131,40 @@ VALIDATION_RULES = {
     "direction": ["Long", "Short", "Unclear"],
     "action_exposure_change": ["Increase", "Decrease", "Unclear"],
     "state_exposure_change": ["No Change", "Unclear"],
-    "action_position_status": ["Clearly a new position", "Clearly an existing position"],
+    "action_position_status": [
+        "Clearly a new position",
+        "Clearly an existing position",
+    ],
     "state_position_status": ["Clearly a new position", "Clearly an existing position"],
     "state_type": ["Explicit State", "Direct State", "Indirect State"],
 }
+
+# ============================================================================
+# LABEL KEY UTILITIES
+# ============================================================================
+
+
+def get_label_key(label: str, field: str) -> str:
+    """Get the key for a label, adding field context for ambiguous labels."""
+    if label in AMBIGUOUS_LABELS:
+        return f"{label} ({field})"
+    return label
+
+
+def get_all_label_keys() -> list[str]:
+    """Get all possible label keys, with field-specific keys for ambiguous labels."""
+    keys = []
+    for field, values in FIELD_VALUES.items():
+        for label in values:
+            key = get_label_key(label, field)
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
+# All possible label keys (with field disambiguation for ambiguous labels)
+ALL_LABEL_KEYS = get_all_label_keys()
+
 
 # Re-export for convenience
 __all__ = [
@@ -152,4 +182,7 @@ __all__ = [
     "EXPOSURE_CHANGE_FIELDS",
     "OPTIONAL_FLAGS_FIELDS",
     "VALIDATION_RULES",
+    "get_label_key",
+    "get_all_label_keys",
+    "ALL_LABEL_KEYS",
 ]

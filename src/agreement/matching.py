@@ -1,15 +1,18 @@
 """Trade matching logic for agreement calculations."""
 
-from typing import Callable
+from typing import Any, Callable, TypeVar
 
 from src.models.trade import group_trades_by_key
+
+# Generic type for similarity results (float, tuple, or dataclass)
+T = TypeVar("T")
 
 
 def find_best_matches(
     trades_a: list[dict],
     trades_b: list[dict],
-    similarity_fn: Callable[[dict, dict], float | tuple],
-) -> list[tuple[dict, dict, float | tuple]]:
+    similarity_fn: Callable[[dict, dict], T],
+) -> list[tuple[dict, dict, T]]:
     """
     Find best matching pairs of trades using a greedy approach.
 
@@ -28,7 +31,7 @@ def find_best_matches(
         return []
 
     # Calculate similarity matrix
-    similarity_matrix: list[list[float | tuple]] = []
+    similarity_matrix: list[list[T]] = []
     for trade_a in trades_a:
         row = []
         for trade_b in trades_b:
@@ -37,7 +40,7 @@ def find_best_matches(
         similarity_matrix.append(row)
 
     # Collect all pairs with their similarities
-    all_pairs: list[tuple[int, int, float | tuple]] = []
+    all_pairs: list[tuple[int, int, T]] = []
     for i in range(len(trades_a)):
         for j in range(len(trades_b)):
             all_pairs.append((i, j, similarity_matrix[i][j]))
@@ -46,7 +49,7 @@ def find_best_matches(
     all_pairs.sort(key=lambda x: _extract_score(x[2]), reverse=True)
 
     # Greedily match pairs
-    matches: list[tuple[dict, dict, float | tuple]] = []
+    matches: list[tuple[dict, dict, T]] = []
     used_a: set[int] = set()
     used_b: set[int] = set()
 
@@ -62,8 +65,8 @@ def find_best_matches(
 def match_trades_by_group(
     trades_a: list[dict],
     trades_b: list[dict],
-    similarity_fn: Callable[[dict, dict], float | tuple],
-) -> list[tuple[dict, dict, float | tuple]]:
+    similarity_fn: Callable[[dict, dict], T],
+) -> list[tuple[dict, dict, T]]:
     """
     Match trades across all primary key groups.
 
@@ -81,7 +84,7 @@ def match_trades_by_group(
     grouped_b = group_trades_by_key(trades_b)
 
     all_keys = set(grouped_a.keys()) | set(grouped_b.keys())
-    all_matches: list[tuple[dict, dict, float | tuple]] = []
+    all_matches: list[tuple[dict, dict, T]] = []
 
     for key in all_keys:
         key_trades_a = grouped_a.get(key, [])
@@ -93,8 +96,16 @@ def match_trades_by_group(
     return all_matches
 
 
-def _extract_score(similarity: float | tuple) -> float:
-    """Extract numeric score from similarity result for sorting."""
+def _extract_score(similarity: Any) -> float:
+    """Extract numeric score from similarity result for sorting.
+
+    Handles:
+    - float: returns as-is
+    - tuple: extracts last numeric element (per_field or per_label format)
+    - UnifiedSimilarity dataclass: extracts overall_score attribute
+    """
+    if isinstance(similarity, (int, float)):
+        return float(similarity)
     if isinstance(similarity, tuple):
         # For per_label: (agreement_dict, count_dict, score)
         # For per_field: (field_scores_dict, score)
@@ -102,4 +113,7 @@ def _extract_score(similarity: float | tuple) -> float:
             return similarity[2]
         elif len(similarity) == 2:
             return similarity[1]
-    return similarity
+    # Handle dataclass with overall_score attribute (UnifiedSimilarity)
+    if hasattr(similarity, "overall_score"):
+        return similarity.overall_score
+    return 0.0
