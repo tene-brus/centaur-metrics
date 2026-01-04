@@ -5,12 +5,8 @@ import os
 import polars as pl
 
 from src.io.loader import DataLoader
-from src.metrics.unified_pairwise import (
-    AggregatedScores,
-    AllPairScores,
-    UnifiedPairwiseCalculator,
-)
-from src.models.constants import ALL_LABEL_KEYS, FIELD_COLUMNS, LABEL_COLUMNS
+from src.metrics.unified_pairwise import AllPairScores, UnifiedPairwiseCalculator
+from src.models.constants import FIELD_COLUMNS, LABEL_COLUMNS
 
 
 class UnifiedMetricsPipeline:
