@@ -12,26 +12,18 @@ METRICS_DIR="${DATA_PATH%.jsonl}_metrics"
 
 source .venv/bin/activate
 
-# overall agreement (total and per trader)
-python metrics.py --data_path "$DATA_PATH"
-python metrics.py --data_path "$DATA_PATH" --per_trader
+# Run unified metrics pipeline (computes all agreement types in a single pass)
+python metrics_unified.py --data_path "$DATA_PATH" --output_dir "$METRICS_DIR"
 
-# per field (per trader only - Total rows computed during merge using simple mean)
-python metrics.py --data_path "$DATA_PATH" --case "field" --per_trader
-python metrics.py --data_path "$DATA_PATH" --case "field" --common --per_trader
-
-# per label (per trader only - Total rows computed during merge using simple mean)
-python metrics.py --data_path "$DATA_PATH" --case "label" --per_trader
-python metrics.py --data_path "$DATA_PATH" --case "label" --common --per_trader
-
-# get merges
+# Merge CSVs
 python merge_csvs.py --directory "${METRICS_DIR}/overall_agreement/"
 
+python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/common_False/"
+python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/common_True/"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdown_common_False/"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_field/gt_breakdown_common_True/"
 
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/common_False/"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/common_True/"
-
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/gt_counts_common_False/"
 python merge_csvs.py --directory "${METRICS_DIR}/agreement_per_label/gt_counts_common_True/"

@@ -23,7 +23,9 @@ def get_trader_task_counts(jsonl_path: str) -> pl.DataFrame:
     if "trader" not in data.columns:
         return pl.DataFrame({"trader": [], "total_tasks": []})
 
-    per_trader = data.group_by("trader").agg(pl.len().cast(pl.Int64).alias("total_tasks"))
+    per_trader = data.group_by("trader").agg(
+        pl.len().cast(pl.Int64).alias("total_tasks")
+    )
 
     # Add a "Total" row with the sum of all tasks
     total_row = pl.DataFrame({"trader": ["Total"], "total_tasks": [len(data)]})
@@ -33,10 +35,13 @@ def get_trader_task_counts(jsonl_path: str) -> pl.DataFrame:
 
 def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> None:
     """Merge all CSVs in a directory and save to parent directory."""
-    # Exclude Total_agreement.csv - we'll compute Total rows using simple mean instead
+    # Exclude Total_agreement.csv and any existing merged_*.csv files
     csv_files = [
-        f for f in os.listdir(directory)
-        if f.endswith(".csv") and f != "Total_agreement.csv"
+        f
+        for f in os.listdir(directory)
+        if f.endswith(".csv")
+        and f != "Total_agreement.csv"
+        and not f.startswith("merged_")
     ]
 
     if not csv_files:
@@ -69,18 +74,26 @@ def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> No
         # If JSONL path provided, fix task counts from source data
         if jsonl_path and "prim_annot_tasks" in merged.columns:
             task_counts = get_trader_task_counts(jsonl_path)
-            # Update only the ALL rows with correct task counts
+
+            # Update ALL rows (aggregated per trader) with correct task counts
             all_rows = merged.filter(pl.col("primary_annotator") == "ALL")
             other_rows = merged.filter(pl.col("primary_annotator") != "ALL")
 
-            # Join with task counts, keeping original value for traders not in JSONL (like "Total")
-            all_rows = all_rows.join(
-                task_counts.rename({"total_tasks": "_jsonl_tasks"}),
-                on="trader",
-                how="left",
-            ).with_columns(
-                pl.coalesce(pl.col("_jsonl_tasks"), pl.col("prim_annot_tasks")).alias("prim_annot_tasks")
-            ).drop("_jsonl_tasks").select(merged.columns)
+            # Join with task counts for ALL rows
+            all_rows = (
+                all_rows.join(
+                    task_counts.rename({"total_tasks": "_jsonl_tasks"}),
+                    on="trader",
+                    how="left",
+                )
+                .with_columns(
+                    pl.coalesce(
+                        pl.col("_jsonl_tasks"), pl.col("prim_annot_tasks")
+                    ).alias("prim_annot_tasks")
+                )
+                .drop("_jsonl_tasks")
+                .select(merged.columns)
+            )
 
             merged = pl.concat([other_rows, all_rows], how="vertical")
 

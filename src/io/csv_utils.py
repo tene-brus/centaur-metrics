@@ -105,6 +105,8 @@ def add_total_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.DataFrame
 
     This differs from weighted mean which would give more weight to traders
     with more tasks.
+
+    prim_annot_tasks and common_tasks are summed across traders for Total rows.
     """
     if "primary_annotator" not in df.columns or "secondary_annotator" not in df.columns:
         return df
@@ -129,7 +131,7 @@ def add_total_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.DataFrame
         agg_exprs = [pl.col(col).sum() for col in numeric_cols]
     else:
         # For agreement scores, use simple mean (not weighted)
-        # Sum task count columns, mean for score columns
+        # Sum task count columns (prim_annot_tasks, common_tasks), mean for score columns
         sum_cols = [col for col in numeric_cols if col in SUM_COLUMNS]
         mean_cols = [col for col in numeric_cols if col not in SUM_COLUMNS]
         agg_exprs = [pl.col(col).sum() for col in sum_cols]

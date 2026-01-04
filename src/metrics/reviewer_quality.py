@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from src.metrics.pairwise import validate_and_dump_annotations
+from src.metrics.unified_pairwise import validate_and_dump_annotations
 from src.models.trade import normalize_annotations
 
 

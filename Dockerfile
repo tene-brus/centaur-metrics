@@ -17,6 +17,7 @@ COPY app/ ./app/
 COPY cli/ ./cli/
 COPY merge_csvs.py ./merge_csvs.py
 COPY combine_projects.py ./combine_projects.py
+COPY metrics_unified.py ./metrics_unified.py
 
 # Ensure data directory exists (app expects this at runtime)
 RUN mkdir -p /workspace/app/data
