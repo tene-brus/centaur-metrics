@@ -1,7 +1,6 @@
 """Unified pairwise agreement calculation - computes all cases in a single pass."""
 
 import copy
-from collections import defaultdict
 from dataclasses import dataclass
 
 import polars as pl

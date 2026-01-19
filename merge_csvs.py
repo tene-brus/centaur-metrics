@@ -68,7 +68,7 @@ def merge_csvs_in_directory(directory: str, jsonl_path: str | None = None) -> No
     is_gt_counts = "gt_counts" in directory
     if is_per_label_or_field:
         merged = add_per_trader_rows(merged, is_gt_counts=is_gt_counts)
-        # Add Total rows using simple mean (not weighted by task count)
+        # Add Total rows using weighted mean (weighted by common_tasks)
         merged = add_total_rows(merged, is_gt_counts=is_gt_counts)
 
         # If JSONL path provided, fix task counts from source data

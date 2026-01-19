@@ -14,6 +14,30 @@ from src.models.trade import normalize_annotations
 
 
 @dataclass
+class VerifierOwnSubmissionStats:
+    """Stats for tasks where verifier submitted their own annotation as GT."""
+
+    total: int = 0
+    # Reviewed by reviewer
+    reviewed_total: int = 0
+    reviewed_with_errors: int = 0  # Reviewer annotation != GT (reviewer mistake)
+    # Not reviewed by reviewer
+    not_reviewed_total: int = 0
+
+
+@dataclass
+class VerifierAcceptedStats:
+    """Stats for tasks where a verifier accepted another annotator's submission as GT."""
+
+    total: int = 0
+    # Reviewed by reviewer
+    reviewed_total: int = 0
+    reviewed_with_errors: int = 0  # Reviewer annotation != GT (reviewer mistake)
+    # Not reviewed by reviewer
+    not_reviewed_total: int = 0
+
+
+@dataclass
 class ReviewerErrorFrequency:
     """Result of reviewer error frequency analysis."""
 
@@ -25,9 +49,11 @@ class ReviewerErrorFrequency:
     per_trader: dict[str, dict]  # trader -> {total, errors, frequency}
     # Project-level statistics
     project_total_tasks: int = 0  # Total tasks in the project
-    gt_verifier_stats: dict[str, dict] = (
-        None  # GT verifier -> {total_verified, reviewed_by_reviewer}
-    )
+    tasks_not_reviewed: int = 0  # Tasks where reviewer has no annotation
+    # Per-verifier stats (when verifier is ground_truth_member - verifier's own submission)
+    verifier_own_submission_stats: dict[str, VerifierOwnSubmissionStats] | None = None
+    # Per-verifier stats (when verifier accepted another annotator's submission as GT)
+    verifier_accepted_stats: dict[str, VerifierAcceptedStats] | None = None
 
 
 def annotations_match(trades_a: list[dict], trades_b: list[dict]) -> bool:
@@ -59,6 +85,17 @@ def annotations_match(trades_a: list[dict], trades_b: list[dict]) -> bool:
     return True
 
 
+def _check_annotation_error(reviewer_ann, gt_ann) -> bool:
+    """Check if reviewer annotation differs from GT (has error)."""
+    if reviewer_ann is None:
+        return False
+    reviewer_validated = validate_and_dump_annotations(reviewer_ann)
+    gt_validated = validate_and_dump_annotations(gt_ann)
+    reviewer_trades = normalize_annotations(copy.deepcopy(reviewer_validated))
+    gt_trades = normalize_annotations(copy.deepcopy(gt_validated))
+    return not annotations_match(reviewer_trades, gt_trades)
+
+
 def calculate_reviewer_error_frequency(
     data: pl.DataFrame,
     reviewer_email: str,
@@ -84,76 +121,124 @@ def calculate_reviewer_error_frequency(
     if "ground_truth" not in data.columns:
         return None
 
-    # Calculate project-level statistics
-    project_total_tasks = data.shape[0]
+    gt_verifiers = gt_verifiers or []
 
-    # Calculate GT verifier statistics
-    gt_verifier_stats: dict[str, dict] = {}
-    if gt_verifiers and "ground_truth_member" in data.columns:
-        for verifier in gt_verifiers:
-            # Count tasks where this verifier provided GT
-            tasks_verified = data.filter(
-                pl.col("ground_truth_member") == verifier
-            ).shape[0]
+    # Add computed columns for analysis
+    computed_cols = [
+        pl.col("ground_truth").is_not_null().alias("has_gt"),
+        pl.col(reviewer_email).is_not_null().alias("reviewer_reviewed"),
+    ]
 
-            # Count tasks where this verifier provided GT AND reviewer reviewed
-            tasks_reviewed_by_reviewer = data.filter(
-                (pl.col("ground_truth_member") == verifier)
-                & pl.col(reviewer_email).is_not_null()
-                & pl.col("ground_truth").is_not_null()
-            ).shape[0]
+    # Handle optional columns
+    if "ground_truth_member" in data.columns:
+        computed_cols.append(
+            pl.col("ground_truth_member").is_in(gt_verifiers).alias("gt_is_verifier")
+        )
+    else:
+        computed_cols.append(pl.lit(False).alias("gt_is_verifier"))
 
-            gt_verifier_stats[verifier] = {
-                "total_verified": tasks_verified,
-                "reviewed_by_reviewer": tasks_reviewed_by_reviewer,
-            }
+    df = data.with_columns(computed_cols)
 
-    # Filter to rows where both reviewer and GT exist
-    filtered = data.filter(
-        pl.col(reviewer_email).is_not_null() & pl.col("ground_truth").is_not_null()
+    # Add has_error column using map_elements (needs row-by-row check)
+    df = df.with_columns(
+        pl.struct([reviewer_email, "ground_truth"])
+        .map_elements(
+            lambda row: _check_annotation_error(
+                row[reviewer_email], row["ground_truth"]
+            ),
+            return_dtype=pl.Boolean,
+        )
+        .alias("has_error")
     )
 
-    if filtered.shape[0] == 0:
-        return None
+    # Project-level stats
+    project_total_tasks = df.shape[0]
 
-    total_tasks = 0
-    tasks_with_errors = 0
-    per_trader: dict[str, dict] = {}
+    # Tasks not reviewed (reviewer has no annotation but GT exists)
+    tasks_not_reviewed = df.filter(
+        ~pl.col("reviewer_reviewed") & pl.col("has_gt")
+    ).shape[0]
 
-    for row in filtered.to_dicts():
-        trader = row.get("trader", "Unknown")
-
-        # Initialize trader tracking
-        if trader not in per_trader:
-            per_trader[trader] = {"total": 0, "errors": 0}
-
-        # Get and normalize annotations
-        reviewer_raw = row[reviewer_email]
-        gt_raw = row["ground_truth"]
-
-        reviewer_validated = validate_and_dump_annotations(reviewer_raw)
-        gt_validated = validate_and_dump_annotations(gt_raw)
-
-        reviewer_trades = normalize_annotations(copy.deepcopy(reviewer_validated))
-        gt_trades = normalize_annotations(copy.deepcopy(gt_validated))
-
-        # Check if they match
-        total_tasks += 1
-        per_trader[trader]["total"] += 1
-
-        if not annotations_match(reviewer_trades, gt_trades):
-            tasks_with_errors += 1
-            per_trader[trader]["errors"] += 1
-
-    # Calculate frequencies
+    # Reviewed tasks with GT
+    reviewed_with_gt = df.filter(pl.col("reviewer_reviewed") & pl.col("has_gt"))
+    total_tasks = reviewed_with_gt.shape[0]
+    tasks_with_errors = reviewed_with_gt.filter(pl.col("has_error")).shape[0]
     error_frequency = tasks_with_errors / total_tasks if total_tasks > 0 else 0.0
 
-    for trader_data in per_trader.values():
-        trader_data["frequency"] = (
-            trader_data["errors"] / trader_data["total"]
-            if trader_data["total"] > 0
-            else 0.0
+    # Per-trader breakdown (only reviewed tasks)
+    per_trader: dict[str, dict] = {}
+    if "trader" in df.columns:
+        trader_stats = (
+            reviewed_with_gt.group_by("trader")
+            .agg(
+                [
+                    pl.len().alias("total"),
+                    pl.col("has_error").sum().alias("errors"),
+                ]
+            )
+            .to_dicts()
         )
+        for row in trader_stats:
+            trader = row["trader"] or "Unknown"
+            total = row["total"]
+            errors = row["errors"]
+            per_trader[trader] = {
+                "total": total,
+                "errors": errors,
+                "frequency": errors / total if total > 0 else 0.0,
+            }
+    elif total_tasks > 0:
+        # No trader column - group all under "Unknown"
+        per_trader["Unknown"] = {
+            "total": total_tasks,
+            "errors": tasks_with_errors,
+            "frequency": error_frequency,
+        }
+
+    # Initialize verifier stats
+    verifier_own_stats: dict[str, VerifierOwnSubmissionStats] = {}
+    verifier_accepted_stats: dict[str, VerifierAcceptedStats] = {}
+    for verifier in gt_verifiers:
+        verifier_own_stats[verifier] = VerifierOwnSubmissionStats()
+        verifier_accepted_stats[verifier] = VerifierAcceptedStats()
+
+    # Verifier own submissions (ground_truth_member is a verifier)
+    if gt_verifiers:
+        own_sub_df = df.filter(pl.col("has_gt") & pl.col("gt_is_verifier"))
+        for verifier in gt_verifiers:
+            verifier_df = own_sub_df.filter(pl.col("ground_truth_member") == verifier)
+            stats = verifier_own_stats[verifier]
+            stats.total = verifier_df.shape[0]
+            stats.reviewed_total = verifier_df.filter(
+                pl.col("reviewer_reviewed")
+            ).shape[0]
+            stats.reviewed_with_errors = verifier_df.filter(
+                pl.col("reviewer_reviewed") & pl.col("has_error")
+            ).shape[0]
+            stats.not_reviewed_total = verifier_df.filter(
+                ~pl.col("reviewer_reviewed")
+            ).shape[0]
+
+    # Verifier accepted other annotator's submission (gt_accepted_by is set)
+    if gt_verifiers and "gt_accepted_by" in df.columns:
+        accepted_df = df.filter(
+            pl.col("has_gt")
+            & ~pl.col("gt_is_verifier")
+            & pl.col("gt_accepted_by").is_not_null()
+        )
+        for verifier in gt_verifiers:
+            verifier_df = accepted_df.filter(pl.col("gt_accepted_by") == verifier)
+            stats = verifier_accepted_stats[verifier]
+            stats.total = verifier_df.shape[0]
+            stats.reviewed_total = verifier_df.filter(
+                pl.col("reviewer_reviewed")
+            ).shape[0]
+            stats.reviewed_with_errors = verifier_df.filter(
+                pl.col("reviewer_reviewed") & pl.col("has_error")
+            ).shape[0]
+            stats.not_reviewed_total = verifier_df.filter(
+                ~pl.col("reviewer_reviewed")
+            ).shape[0]
 
     return ReviewerErrorFrequency(
         project_name=project_name,
@@ -163,7 +248,13 @@ def calculate_reviewer_error_frequency(
         error_frequency=error_frequency,
         per_trader=per_trader,
         project_total_tasks=project_total_tasks,
-        gt_verifier_stats=gt_verifier_stats if gt_verifier_stats else None,
+        tasks_not_reviewed=tasks_not_reviewed,
+        verifier_own_submission_stats=verifier_own_stats
+        if verifier_own_stats
+        else None,
+        verifier_accepted_stats=verifier_accepted_stats
+        if verifier_accepted_stats
+        else None,
     )
 
 

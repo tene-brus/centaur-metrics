@@ -97,14 +97,15 @@ def add_per_trader_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.Data
 
 
 def add_total_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.DataFrame:
-    """Add 'Total' rows aggregating across all traders using simple mean.
+    """Add 'Total' rows aggregating across all traders using weighted mean.
 
     For each (primary_annotator, secondary_annotator) pair, creates a row with
-    trader='Total' containing the simple mean of scores across all traders
+    trader='Total' containing the weighted mean of scores across all traders
     (excluding rows where common_tasks == 0).
 
-    This differs from weighted mean which would give more weight to traders
-    with more tasks.
+    Weighted mean = sum(score * common_tasks) / sum(common_tasks)
+    This gives more weight to traders with more tasks, matching the pipeline's
+    natural aggregation behavior.
 
     prim_annot_tasks and common_tasks are summed across traders for Total rows.
     """
@@ -130,17 +131,32 @@ def add_total_rows(df: pl.DataFrame, is_gt_counts: bool = False) -> pl.DataFrame
         # For gt_counts, sum all numeric columns
         agg_exprs = [pl.col(col).sum() for col in numeric_cols]
     else:
-        # For agreement scores, use simple mean (not weighted)
-        # Sum task count columns (prim_annot_tasks, common_tasks), mean for score columns
+        # For agreement scores, use weighted mean (weighted by common_tasks)
+        # Sum task count columns (prim_annot_tasks, common_tasks)
+        # Weighted mean for score columns: sum(score * tasks) / sum(tasks)
         sum_cols = [col for col in numeric_cols if col in SUM_COLUMNS]
         mean_cols = [col for col in numeric_cols if col not in SUM_COLUMNS]
         agg_exprs = [pl.col(col).sum() for col in sum_cols]
-        agg_exprs += [pl.col(col).mean() for col in mean_cols]
+        # Create weighted sum expressions for score columns
+        agg_exprs += [
+            (pl.col(col) * pl.col("common_tasks")).sum().alias(f"_{col}_weighted")
+            for col in mean_cols
+        ]
 
     # Aggregate per annotator pair across all traders
     total_rows = df_with_data.group_by(
         ["primary_annotator", "secondary_annotator"], maintain_order=True
     ).agg(agg_exprs)
+
+    # For non-gt_counts, compute final weighted means by dividing by total common_tasks
+    if not is_gt_counts:
+        mean_cols = [col for col in numeric_cols if col not in SUM_COLUMNS]
+        total_rows = total_rows.with_columns(
+            [
+                (pl.col(f"_{col}_weighted") / pl.col("common_tasks")).alias(col)
+                for col in mean_cols
+            ]
+        ).drop([f"_{col}_weighted" for col in mean_cols])
 
     # Add trader='Total'
     total_rows = total_rows.with_columns(pl.lit("Total").alias("trader"))

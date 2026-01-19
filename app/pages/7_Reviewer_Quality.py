@@ -14,6 +14,29 @@ st.title("Reviewer Quality Dashboard")
 st.markdown(
     "View how often the reviewer's annotations were corrected (differ from final GT)."
 )
+
+
+def display_task_breakdown(
+    label: str,
+    total: int,
+    reviewed: int,
+    reviewed_errors: int,
+    not_reviewed: int,
+):
+    """Display a task breakdown section with reviewed/not-reviewed stats."""
+    st.markdown(f"**{label}:** {total} tasks")
+    if total > 0:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("*Reviewed by Reviewer:*")
+            st.metric("Total", reviewed)
+            error_rate = reviewed_errors / reviewed if reviewed > 0 else 0
+            st.metric("Reviewer Mistakes", f"{reviewed_errors} ({error_rate:.1%})")
+        with col2:
+            st.markdown("*Not Reviewed:*")
+            st.metric("Total", not_reviewed)
+
+
 st.markdown("---")
 
 # Paths
@@ -83,7 +106,7 @@ st.markdown("---")
 
 # Project-level statistics
 st.subheader("Project Statistics")
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric("Total Project Tasks", result.project_total_tasks)
@@ -92,26 +115,81 @@ with col2:
     st.metric("Tasks Reviewed", result.total_tasks)
 
 with col3:
-    st.metric("Error Frequency", f"{result.error_frequency:.1%}")
+    st.metric("Tasks Not Reviewed", result.tasks_not_reviewed)
 
-# GT Verifier statistics
-if result.gt_verifier_stats:
-    st.markdown("---")
-    st.subheader("GT Verifier Summary")
-    st.markdown("Tasks where each GT verifier provided ground truth.")
-
-    gt_cols = st.columns(len(result.gt_verifier_stats))
-    for idx, (verifier, stats) in enumerate(result.gt_verifier_stats.items()):
-        with gt_cols[idx]:
-            verifier_name = verifier.split("@")[0].capitalize()
-            st.markdown(f"**{verifier_name}** ({verifier})")
-            st.metric("Tasks with GT Verified", stats["total_verified"])
-            st.metric("Reviewed by Reviewer", stats["reviewed_by_reviewer"])
+with col4:
+    st.metric("Overall Error Rate", f"{result.error_frequency:.1%}")
 
 st.markdown("---")
 
-# Reviewer error summary
-st.subheader("Reviewer Error Summary")
+# GT Verifier Own Submissions - per verifier breakdown
+if result.verifier_own_submission_stats:
+    st.subheader("Verifier Own Submissions")
+    st.markdown("Tasks where each GT verifier submitted their own annotation as GT.")
+
+    for verifier, stats in result.verifier_own_submission_stats.items():
+        verifier_name = verifier.split("@")[0].capitalize()
+        with st.expander(
+            f"{verifier_name} ({verifier}) - {stats.total} tasks",
+            expanded=stats.total > 0,
+        ):
+            if stats.total > 0:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Reviewed by Reviewer:**")
+                    st.metric("Total", stats.reviewed_total)
+                    if stats.reviewed_total > 0:
+                        error_rate = stats.reviewed_with_errors / stats.reviewed_total
+                        st.metric(
+                            "Reviewer Mistakes",
+                            f"{stats.reviewed_with_errors} ({error_rate:.1%})",
+                        )
+                    else:
+                        st.metric("Reviewer Mistakes", "0")
+                with col2:
+                    st.markdown("**Not Reviewed:**")
+                    st.metric("Total", stats.not_reviewed_total)
+            else:
+                st.info("No tasks")
+
+st.markdown("---")
+
+# Verifier Accepted Other Annotator's Submission - per verifier breakdown
+if result.verifier_accepted_stats:
+    st.subheader("Verifier Accepted Other Annotator's Submission")
+    st.markdown(
+        "Tasks where each GT verifier accepted an existing annotator's submission as GT."
+    )
+
+    for verifier, stats in result.verifier_accepted_stats.items():
+        verifier_name = verifier.split("@")[0].capitalize()
+        with st.expander(
+            f"{verifier_name} ({verifier}) - {stats.total} tasks",
+            expanded=stats.total > 0,
+        ):
+            if stats.total > 0:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Reviewed by Reviewer:**")
+                    st.metric("Total", stats.reviewed_total)
+                    if stats.reviewed_total > 0:
+                        error_rate = stats.reviewed_with_errors / stats.reviewed_total
+                        st.metric(
+                            "Reviewer Mistakes",
+                            f"{stats.reviewed_with_errors} ({error_rate:.1%})",
+                        )
+                    else:
+                        st.metric("Reviewer Mistakes", "0")
+                with col2:
+                    st.markdown("**Not Reviewed:**")
+                    st.metric("Total", stats.not_reviewed_total)
+            else:
+                st.info("No tasks")
+
+st.markdown("---")
+
+# Reviewer error summary (overall)
+st.subheader("Reviewer Error Summary (Overall)")
 col1, col2, col3 = st.columns(3)
 
 with col1:

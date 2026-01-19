@@ -27,7 +27,7 @@ with st.expander("Understanding the Results", expanded=False):
 
 ### Special Rows
 - **primary_annotator = "ALL"**: Aggregated metrics for the entire trader (mean of all annotator pairs)
-- **trader = "Total"**: Combined metrics across all traders (simple mean)
+- **trader = "Total"**: Combined metrics across all traders (weighted mean by task count)
 
 ### Key Columns
 - `trader`: The trading desk or team being evaluated
@@ -81,7 +81,11 @@ for f in merged_files:
         category = parent
     else:
         grandparent = f.parent.parent.name
-        if grandparent in ["agreement_per_field", "agreement_per_label", "overall_agreement"]:
+        if grandparent in [
+            "agreement_per_field",
+            "agreement_per_label",
+            "overall_agreement",
+        ]:
             category = grandparent
         else:
             continue  # Skip files that don't belong to a known category
@@ -115,7 +119,10 @@ with col2:
         clean_name = filename.replace("merged_", "").replace(".csv", "")
         return clean_name
 
-    file_options = {get_file_display_name(f): f for f in sorted(files_in_category, key=get_file_display_name)}
+    file_options = {
+        get_file_display_name(f): f
+        for f in sorted(files_in_category, key=get_file_display_name)
+    }
 
     selected_file_name = st.selectbox(
         "File",
@@ -182,18 +189,14 @@ try:
 
             for i, col in enumerate(string_cols[:6]):  # Limit to 6 filters
                 with filter_cols[i % 3]:
-                    unique_vals = ["All"] + sorted(
-                        df[col].dropna().unique().tolist()
-                    )
+                    unique_vals = ["All"] + sorted(df[col].dropna().unique().tolist())
                     selected_val = st.selectbox(
                         col,
                         unique_vals,
                         key=f"filter_{col}",
                     )
                     if selected_val != "All":
-                        filtered_df = filtered_df[
-                            filtered_df[col] == selected_val
-                        ]
+                        filtered_df = filtered_df[filtered_df[col] == selected_val]
 
         # Numeric range filters
         if numeric_cols:
@@ -237,9 +240,7 @@ try:
     with col4:
         # Look for any agreement-like column
         agreement_cols = [
-            c
-            for c in df.columns
-            if "agreement" in c.lower() or "mean" in c.lower()
+            c for c in df.columns if "agreement" in c.lower() or "mean" in c.lower()
         ]
         if agreement_cols and len(df) > 0:
             col_name = agreement_cols[0]

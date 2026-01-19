@@ -1,8 +1,9 @@
 """Ground Truth Quality Dashboard - View annotator agreement with GT by field/label."""
 
+import json
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 import streamlit as st
 
 # Note: Ambiguous labels like "Unclear" are now output as field-specific columns
@@ -19,6 +20,16 @@ st.markdown("---")
 # Paths
 APP_DIR = Path(__file__).parent.parent
 DATA_DIR = APP_DIR / "data"
+CONFIG_PATH = DATA_DIR / "reviewer_config.json"
+
+
+def load_config() -> dict:
+    """Load reviewer config from file."""
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    return {"global_exclusions": [], "project_reviewers": {}}
+
 
 # Find metrics directories (both *_metrics and combined*)
 metrics_dirs = [
@@ -101,7 +112,7 @@ elif view_type == "Per Label (Counts)" and not has_counts_data:
     st.stop()
 
 
-def load_gt_data(base_path: Path, combined_path: Path, pattern: str) -> pd.DataFrame:
+def load_gt_data(base_path: Path, combined_path: Path, pattern: str) -> pl.DataFrame:
     """Load GT comparison data from merged CSV file only.
 
     Only loads merged files to avoid double-counting from individual trader files.
@@ -121,19 +132,19 @@ def load_gt_data(base_path: Path, combined_path: Path, pattern: str) -> pd.DataF
             merged_file = merged_files[0]
 
     if not merged_file:
-        return pd.DataFrame()
+        return pl.DataFrame()
 
     try:
-        df = pd.read_csv(merged_file)
+        df = pl.read_csv(merged_file)
         # Filter to only GT comparisons
         if "secondary_annotator" in df.columns:
-            df = df[df["secondary_annotator"] == "ground_truth"]
+            df = df.filter(pl.col("secondary_annotator") == "ground_truth")
         # Exclude rows where common_tasks is 0 (no GT comparisons)
         if "common_tasks" in df.columns:
-            df = df[df["common_tasks"] > 0]
+            df = df.filter(pl.col("common_tasks") > 0)
         return df
     except Exception:
-        return pd.DataFrame()
+        return pl.DataFrame()
 
 
 # Load data based on view type
@@ -179,16 +190,16 @@ else:  # Per Label (Counts)
     ]
     field_columns = [c for c in df.columns if c not in metadata_cols]
 
-if df.empty:
+if df.is_empty():
     st.warning(
         "No merged data file found. Run the merge script first to generate merged CSV files."
     )
     st.stop()
 
 # Exclude "Total" rows from everywhere
-df = df[df["trader"] != "Total"]
+df = df.filter(pl.col("trader") != "Total")
 
-if df.empty:
+if df.is_empty():
     st.warning("No data available after excluding Total rows.")
     st.stop()
 
@@ -198,7 +209,9 @@ col1, col2 = st.columns(2)
 
 with col1:
     # Trader filter
-    traders = ["All"] + sorted(df["trader"].dropna().unique().tolist())
+    traders = ["All"] + sorted(
+        df.select("trader").drop_nulls().unique().to_series().to_list()
+    )
     selected_trader = st.selectbox(
         "Trader", traders, help="Filter by specific trader or view all"
     )
@@ -230,9 +243,9 @@ if not selected_fields:
 
 # Apply trader filter
 if selected_trader != "All":
-    df = df[df["trader"] == selected_trader]
+    df = df.filter(pl.col("trader") == selected_trader)
 
-if df.empty:
+if df.is_empty():
     st.warning("No data matches the selected filters.")
     st.stop()
 
@@ -246,57 +259,67 @@ else:
 
 # Prepare display dataframe
 display_cols = ["primary_annotator", "trader", "common_tasks"] + selected_fields
-display_df = df[display_cols].copy()
+display_df = df.select(display_cols)
 
 # Convert common_tasks to int
-display_df["common_tasks"] = display_df["common_tasks"].astype(int)
+display_df = display_df.with_columns(pl.col("common_tasks").cast(pl.Int64))
 
 # For counts view, convert selected fields to int as well
 if is_counts_view:
-    for col in selected_fields:
-        if col in display_df.columns:
-            display_df[col] = display_df[col].astype(int)
+    display_df = display_df.with_columns(
+        [
+            pl.col(col).cast(pl.Int64)
+            for col in selected_fields
+            if col in display_df.columns
+        ]
+    )
 
 # Rename metadata columns for clarity (label columns are already properly named)
 rename_cols = {"primary_annotator": "Annotator", "common_tasks": "Tasks vs GT"}
-display_df = display_df.rename(columns=rename_cols)
+display_df = display_df.rename(rename_cols)
 
 # Display field names are the same as selected fields (already disambiguated)
 display_field_names = selected_fields
 
-# Sort by first selected field descending and reset index
+# Sort by first selected field descending
 if display_field_names:
-    display_df = display_df.sort_values(
-        display_field_names[0], ascending=False
-    ).reset_index(drop=True)
+    display_df = display_df.sort(display_field_names[0], descending=True)
 
 # Show metrics summary (use original field names for data access, display names for labels)
-st.markdown("**Summary Statistics**")
+st.markdown("**Summary Statistics (Weighted by Task Count)**")
 summary_cols = st.columns(len(selected_fields[:5]))  # Limit to 5 in summary row
 for i, field in enumerate(selected_fields[:5]):
     display_name = display_field_names[i] if i < len(display_field_names) else field
     with summary_cols[i]:
         if is_counts_view:
-            total_val = df[field].sum()
+            total_val = df.select(pl.col(field).sum()).item()
             st.metric(display_name, f"{int(total_val):,}")
         else:
-            mean_val = df[field].mean()
-            st.metric(display_name, f"{mean_val:.3f}")
+            # Weighted mean: sum(score * tasks) / sum(tasks)
+            weighted_sum = df.select(
+                (pl.col(field) * pl.col("common_tasks")).sum()
+            ).item()
+            total_tasks = df.select(pl.col("common_tasks").sum()).item()
+            weighted_mean = weighted_sum / total_tasks if total_tasks > 0 else 0
+            st.metric(display_name, f"{weighted_mean:.3f}")
 
 st.markdown("---")
+
+# Convert to pandas for streamlit display with styling
+display_df_pandas = display_df.to_pandas()
 
 # Show the data table with appropriate formatting
 if is_counts_view:
     # For counts, no gradient (values aren't 0-1), format as integers
     st.dataframe(
-        display_df.style.format({col: "{:,.0f}" for col in display_field_names}),
+        display_df_pandas.style.format({col: "{:,.0f}" for col in display_field_names}),
         use_container_width=True,
         height=400,
     )
 else:
     # For ratios, use gradient and 3 decimal formatting
     st.dataframe(
-        display_df.style.background_gradient(
+        display_df_pandas.style.background_gradient(
             subset=display_field_names,
             cmap="RdYlGn",
             vmin=0,
@@ -312,43 +335,68 @@ if selected_trader == "All":
 
     if is_counts_view:
         st.subheader("Aggregated by Annotator (Sum Across All Traders)")
-        agg_df = (
-            df.groupby("primary_annotator")[["common_tasks"] + selected_fields]
-            .sum()
-            .reset_index()
+        agg_df = df.group_by("primary_annotator").agg(
+            [pl.col("common_tasks").sum()]
+            + [pl.col(field).sum() for field in selected_fields]
         )
     else:
-        st.subheader("Aggregated by Annotator (Mean Across All Traders)")
-        # Sum common_tasks, mean for the rest
+        st.subheader("Aggregated by Annotator (Weighted Mean Across All Traders)")
+        # Weighted mean: sum(score * tasks) / sum(tasks) for each field
+        # This matches the View Results calculation
         agg_df = (
-            df.groupby("primary_annotator")
+            df.group_by("primary_annotator")
             .agg(
-                {**{"common_tasks": "sum"}, **{col: "mean" for col in selected_fields}}
+                [pl.col("common_tasks").sum()]
+                + [
+                    (pl.col(field) * pl.col("common_tasks"))
+                    .sum()
+                    .alias(f"{field}_weighted")
+                    for field in selected_fields
+                ]
             )
-            .reset_index()
+            # Divide weighted sums by total tasks to get weighted mean
+            .with_columns(
+                [
+                    (pl.col(f"{field}_weighted") / pl.col("common_tasks")).alias(field)
+                    for field in selected_fields
+                ]
+            )
+            # Drop the intermediate weighted columns
+            .drop([f"{field}_weighted" for field in selected_fields])
+            # Make total contribution column (mean of the weighted means)
+            .with_columns(
+                pl.mean_horizontal(
+                    pl.exclude("primary_annotator", "common_tasks")
+                ).alias("average")
+            )
         )
+        # Add it to the display list & sort based on it
+        display_field_names += ["average"]
+        agg_df = agg_df.sort("average", descending=True)
 
     # Rename metadata columns (label columns are already properly named)
     agg_rename_cols = {
         "primary_annotator": "Annotator",
         "common_tasks": "Total Tasks vs GT",
     }
-    agg_df = agg_df.rename(columns=agg_rename_cols)
-    agg_df["Total Tasks vs GT"] = agg_df["Total Tasks vs GT"].astype(int)
-    agg_df = agg_df.sort_values(display_field_names[0], ascending=False)
+    agg_df = agg_df.rename(agg_rename_cols)
+    agg_df = agg_df.with_columns(pl.col("Total Tasks vs GT").cast(pl.Int64))
+
+    # Convert to pandas for styling
+    agg_df_pandas = agg_df.to_pandas()
 
     if is_counts_view:
         # Convert to int for counts
         for col in display_field_names:
-            if col in agg_df.columns:
-                agg_df[col] = agg_df[col].astype(int)
+            if col in agg_df_pandas.columns:
+                agg_df_pandas[col] = agg_df_pandas[col].astype(int)
         st.dataframe(
-            agg_df.style.format({col: "{:,.0f}" for col in display_field_names}),
+            agg_df_pandas.style.format({col: "{:,.0f}" for col in display_field_names}),
             use_container_width=True,
         )
     else:
         st.dataframe(
-            agg_df.style.background_gradient(
+            agg_df_pandas.style.background_gradient(
                 subset=display_field_names,
                 cmap="RdYlGn",
                 vmin=0,
@@ -358,7 +406,7 @@ if selected_trader == "All":
         )
 
 # Download button
-csv_data = display_df.to_csv(index=False)
+csv_data = display_df.write_csv()
 st.download_button(
     label="Download CSV",
     data=csv_data,

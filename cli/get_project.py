@@ -16,6 +16,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress verbose HTTP request logging from httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 client = LabelStudio(
     base_url=os.getenv("LABEL_STUDIO_URL"), api_key=os.getenv("LABEL_STUDIO_API_KEY")
 )
@@ -24,6 +27,12 @@ OPTIONAL_STATE_FLAGS = [
     "state_optional_task_flags",
     "action_optional_task_flags",
 ]
+
+# GT Verifier user IDs -> emails
+GT_VERIFIER_IDS = {
+    73379: "alissa@zap.xyz",
+    73374: "tony@zap.xyz",
+}
 
 
 def get_project_metadata(client: LabelStudio, project_name: str):
@@ -104,9 +113,13 @@ def get_project_annotations(
             entry["predictions"] = None
             entry["ground_truth_member"] = None
             entry["ground_truth"] = None
+            entry["gt_accepted"] = False
+            entry["gt_accepted_by"] = None
             entry["id"] = task.id
             entry["num_annotations"] = len(task.annotations)
             entry["trader"] = task.data["Trader"]
+
+            gt_annotation_id = None
             for i in range(task.annotators_count):
                 try:
                     annotator = task.annotations[i]["completed_by"]["email"].strip()
@@ -118,12 +131,32 @@ def get_project_annotations(
                         entry["ground_truth_member"] = task.annotations[i][
                             "completed_by"
                         ]["email"].strip()
+                        gt_annotation_id = task.annotations[i]["id"]
 
                     predictions = extract_annotations(task.predictions[0].result)
                     entry["predictions"] = predictions
 
                 except Exception as e:
                     logging.error(f"{str(e)}")
+
+            # Fetch who accepted the GT annotation (only if GT exists)
+            if gt_annotation_id is not None:
+                try:
+                    reviews = client.annotation_reviews.list(
+                        annotation=gt_annotation_id
+                    )
+                    for review in reviews:
+                        if review.accepted:
+                            entry["gt_accepted"] = True
+                            if review.created_by in GT_VERIFIER_IDS:
+                                entry["gt_accepted_by"] = GT_VERIFIER_IDS[
+                                    review.created_by
+                                ]
+                            break
+                except Exception as review_err:
+                    logger.warning(
+                        f"Could not fetch reviews for annotation {gt_annotation_id}: {review_err}"
+                    )
 
             entry = json.dumps(entry)
 

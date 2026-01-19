@@ -105,12 +105,36 @@ class TestCalculateReviewerErrorFrequency:
                 "task_id": ["t1", "t2"],
                 "trader": ["trader_A", "trader_A"],
                 "reviewer@example.com": [
-                    [{"label_type": "action", "direction": "Long", "action_exposure_change": "Increase"}],
-                    [{"label_type": "action", "direction": "Short", "action_exposure_change": "Decrease"}],
+                    [
+                        {
+                            "label_type": "action",
+                            "direction": "Long",
+                            "action_exposure_change": "Increase",
+                        }
+                    ],
+                    [
+                        {
+                            "label_type": "action",
+                            "direction": "Short",
+                            "action_exposure_change": "Decrease",
+                        }
+                    ],
                 ],
                 "ground_truth": [
-                    [{"label_type": "action", "direction": "Long", "action_exposure_change": "Increase"}],
-                    [{"label_type": "action", "direction": "Short", "action_exposure_change": "Decrease"}],
+                    [
+                        {
+                            "label_type": "action",
+                            "direction": "Long",
+                            "action_exposure_change": "Increase",
+                        }
+                    ],
+                    [
+                        {
+                            "label_type": "action",
+                            "direction": "Short",
+                            "action_exposure_change": "Decrease",
+                        }
+                    ],
                 ],
             }
         )
@@ -124,15 +148,23 @@ class TestCalculateReviewerErrorFrequency:
                 "trader": ["trader_A", "trader_A", "trader_B", "trader_B"],
                 "reviewer@example.com": [
                     [{"label_type": "action", "direction": "Long"}],  # Match
-                    [{"label_type": "action", "direction": "Short"}],  # Error - different from GT
+                    [
+                        {"label_type": "action", "direction": "Short"}
+                    ],  # Error - different from GT
                     [{"label_type": "action", "direction": "Long"}],  # Match
-                    [{"label_type": "action", "direction": "Long"}],  # Error - different from GT
+                    [
+                        {"label_type": "action", "direction": "Long"}
+                    ],  # Error - different from GT
                 ],
                 "ground_truth": [
                     [{"label_type": "action", "direction": "Long"}],
-                    [{"label_type": "action", "direction": "Long"}],  # GT says Long, reviewer said Short
+                    [
+                        {"label_type": "action", "direction": "Long"}
+                    ],  # GT says Long, reviewer said Short
                     [{"label_type": "action", "direction": "Long"}],
-                    [{"label_type": "action", "direction": "Short"}],  # GT says Short, reviewer said Long
+                    [
+                        {"label_type": "action", "direction": "Short"}
+                    ],  # GT says Short, reviewer said Long
                 ],
             }
         )
@@ -147,16 +179,14 @@ class TestCalculateReviewerErrorFrequency:
 
     def test_returns_none_if_no_ground_truth_column(self):
         """Should return None if ground_truth column missing."""
-        data = pl.DataFrame(
-            {"task_id": ["t1"], "reviewer@example.com": [[]]}
-        )
+        data = pl.DataFrame({"task_id": ["t1"], "reviewer@example.com": [[]]})
 
         result = calculate_reviewer_error_frequency(data, "reviewer@example.com")
 
         assert result is None
 
-    def test_returns_none_if_no_common_rows(self):
-        """Should return None if no rows have both reviewer and GT."""
+    def test_returns_result_with_zero_reviewed_if_no_common_rows(self):
+        """Should return result with zero reviewed tasks if no rows have both reviewer and GT."""
         data = pl.DataFrame(
             {
                 "task_id": ["t1", "t2"],
@@ -167,7 +197,11 @@ class TestCalculateReviewerErrorFrequency:
 
         result = calculate_reviewer_error_frequency(data, "reviewer@example.com")
 
-        assert result is None
+        # Now returns result even with no reviewed tasks, showing non-reviewed stats
+        assert result is not None
+        assert result.total_tasks == 0
+        assert result.tasks_not_reviewed == 1
+        assert result.error_frequency == 0.0
 
     def test_returns_zero_error_frequency_when_all_match(self, sample_data_all_match):
         """Should return 0 error frequency when all annotations match GT."""
@@ -231,7 +265,9 @@ class TestCalculateReviewerErrorFrequency:
         data = pl.DataFrame(
             {
                 "task_id": ["t1"],
-                "reviewer@example.com": [[{"label_type": "action", "direction": "Long"}]],
+                "reviewer@example.com": [
+                    [{"label_type": "action", "direction": "Long"}]
+                ],
                 "ground_truth": [[{"label_type": "action", "direction": "Long"}]],
             }
         )
@@ -266,7 +302,9 @@ class TestCalculateReviewerErrorFrequencyFromFile:
             {
                 "task_id": "t2",
                 "trader": "A",
-                "reviewer@example.com": [{"label_type": "action", "direction": "Short"}],
+                "reviewer@example.com": [
+                    {"label_type": "action", "direction": "Short"}
+                ],
                 "ground_truth": [{"label_type": "action", "direction": "Long"}],
             },
         ]
