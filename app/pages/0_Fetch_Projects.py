@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import streamlit as st
-
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -229,6 +228,33 @@ if st.button("Fetch All", type="secondary"):
     logger.info("Fetch All completed")
     overall_status.text("Complete!")
     st.success("All projects fetched!")
+
+st.markdown("---")
+
+# Upload a project file
+st.subheader("Upload Project File")
+st.markdown(
+    "Upload a `.jsonl` project file directly instead of fetching from Label Studio."
+)
+
+uploaded_file = st.file_uploader("Choose a JSONL file", type=["jsonl"])
+
+if uploaded_file is not None:
+    dest_path = DATA_DIR / uploaded_file.name
+    if dest_path.exists():
+        st.warning(f"`{uploaded_file.name}` already exists in data directory.")
+        overwrite = st.checkbox("Overwrite existing file")
+    else:
+        overwrite = True
+
+    if overwrite and st.button("Save Uploaded File"):
+        try:
+            dest_path.write_bytes(uploaded_file.getvalue())
+            logger.info(f"Uploaded file saved to: {dest_path}")
+            st.success(f"File saved to `{dest_path}`")
+        except Exception as e:
+            logger.exception(f"Error saving uploaded file: {e}")
+            st.error(f"Error saving file: {e}")
 
 st.markdown("---")
 
