@@ -124,6 +124,7 @@ class UnifiedMetricsPipeline:
         os.makedirs(subdir, exist_ok=True)
 
         output_file = os.path.join(subdir, filename)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         result = self._create_overall_df(all_scores, data, trader=trader)
         result.filter(pl.col("annotator").is_not_null()).write_csv(
             output_file, float_precision=3
@@ -145,6 +146,7 @@ class UnifiedMetricsPipeline:
         os.makedirs(subdir, exist_ok=True)
 
         output_file = os.path.join(subdir, filename)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         result = self._create_per_field_df(all_scores, data, trader)
         result.write_csv(output_file, float_precision=3)
         print(output_file)
@@ -167,6 +169,7 @@ class UnifiedMetricsPipeline:
         os.makedirs(subdir, exist_ok=True)
 
         output_file = os.path.join(subdir, filename)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         result = self._create_per_label_df(all_scores, data, trader, use_ratios=True)
         result.write_csv(output_file, float_precision=3)
         print(output_file)
@@ -414,6 +417,7 @@ class UnifiedMetricsPipeline:
         os.makedirs(gt_subdir, exist_ok=True)
 
         output_path = os.path.join(gt_subdir, filename)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         gt_breakdown = (
             df.filter(pl.col("secondary_annotator") == "ground_truth")
@@ -444,6 +448,7 @@ class UnifiedMetricsPipeline:
         os.makedirs(gt_subdir, exist_ok=True)
 
         output_path = os.path.join(gt_subdir, filename)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         gt_counts = df.filter(pl.col("secondary_annotator") == "ground_truth")
 
