@@ -26,7 +26,14 @@ def load_reviewer_config(config_path: str | None = None) -> dict:
     search_paths = [
         DEFAULT_REVIEWER_CONFIG,
         os.path.join("app", "data", DEFAULT_REVIEWER_CONFIG),
-        os.path.join(os.path.dirname(__file__), "..", "..", "app", "data", DEFAULT_REVIEWER_CONFIG),
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "app",
+            "data",
+            DEFAULT_REVIEWER_CONFIG,
+        ),
     ]
 
     for path in search_paths:
@@ -38,7 +45,9 @@ def load_reviewer_config(config_path: str | None = None) -> dict:
     return {"global_exclusions": [], "project_reviewers": {}}
 
 
-def get_excluded_annotators(project_name: str | None = None, config_path: str | None = None) -> list[str]:
+def get_excluded_annotators(
+    project_name: str | None = None, config_path: str | None = None
+) -> list[str]:
     """Get list of annotators to exclude for a given project.
 
     Args:
@@ -70,7 +79,12 @@ class DataLoader:
     Handles filtering of invalid rows and extraction of annotator columns.
     """
 
-    def __init__(self, data_path: str, infer_schema_length: int = 8000, config_path: str | None = None):
+    def __init__(
+        self,
+        data_path: str,
+        infer_schema_length: int = 8000,
+        config_path: str | None = None,
+    ):
         """
         Initialize loader with path to JSONL file.
 
@@ -92,7 +106,6 @@ class DataLoader:
 
         Filters out:
         - Rows with num_annotations == 0
-        - Rows where predictions is null
 
         Returns:
             Filtered DataFrame
@@ -109,9 +122,7 @@ class DataLoader:
             data = data.drop(["id"])
 
         # Filter valid rows
-        data = data.filter(pl.col("num_annotations") != 0).filter(
-            pl.col("predictions").is_not_null()
-        )
+        data = data.filter(pl.col("num_annotations") != 0)
 
         self._data = data
         return data
@@ -121,8 +132,7 @@ class DataLoader:
         """Get list of annotators to exclude based on config."""
         if self._excluded_annotators is None:
             self._excluded_annotators = get_excluded_annotators(
-                project_name=self.base_name,
-                config_path=self.config_path
+                project_name=self.base_name, config_path=self.config_path
             )
         return self._excluded_annotators
 
@@ -147,9 +157,7 @@ class DataLoader:
         # Email columns + special columns, excluding configured annotators
         excluded = self.excluded_annotators
         email_cols = [
-            col
-            for col in self._data.columns
-            if "@" in col and col not in excluded
+            col for col in self._data.columns if "@" in col and col not in excluded
         ]
         special_cols = ["predictions", "ground_truth"]
 

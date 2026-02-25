@@ -100,7 +100,8 @@ class UnifiedMetricsPipeline:
         common: bool,
     ) -> None:
         """Write all output files from a single computation."""
-        filename = f"agreement_{trader}.csv"
+        safe_trader = trader.replace("/", "_").replace("\\", "_")
+        filename = f"agreement_{safe_trader}.csv"
 
         # 1. Overall agreement (only for common=False)
         if not common:
