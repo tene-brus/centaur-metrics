@@ -148,7 +148,7 @@ class UnifiedMetricsPipeline:
 
         output_file = os.path.join(subdir, filename)
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        result = self._create_per_field_df(all_scores, data, trader)
+        result = self._create_per_field_df(all_scores, data, trader, common)
         result.write_csv(output_file, float_precision=3)
         print(output_file)
 
@@ -171,13 +171,15 @@ class UnifiedMetricsPipeline:
 
         output_file = os.path.join(subdir, filename)
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        result = self._create_per_label_df(all_scores, data, trader, use_ratios=True)
+        result = self._create_per_label_df(
+            all_scores, data, trader, use_ratios=True, common=common
+        )
         result.write_csv(output_file, float_precision=3)
         print(output_file)
 
         # Create gt_counts (raw counts, not ratios)
         counts_result = self._create_per_label_df(
-            all_scores, data, trader, use_ratios=False
+            all_scores, data, trader, use_ratios=False, common=common
         )
         self._create_gt_counts(counts_result, filename, common)
 
@@ -237,6 +239,7 @@ class UnifiedMetricsPipeline:
         all_scores: AllPairScores,
         data: pl.DataFrame,
         trader: str | None = None,
+        common: bool = False,
     ) -> pl.DataFrame:
         """Create summary DataFrame for per-field agreement."""
         tables: dict[str, pl.DataFrame] = {}
@@ -250,9 +253,7 @@ class UnifiedMetricsPipeline:
 
                 scores = all_scores.scores[annotator][annotator_2]
 
-                if annotator_2 == "ground_truth" and not self._is_common_calculator(
-                    all_scores
-                ):
+                if annotator_2 == "ground_truth" and not common:
                     common_tasks = (
                         data.filter(pl.col(annotator).is_not_null())
                         .filter(pl.col(annotator_2).is_not_null())
@@ -319,6 +320,7 @@ class UnifiedMetricsPipeline:
         data: pl.DataFrame,
         trader: str | None = None,
         use_ratios: bool = True,
+        common: bool = False,
     ) -> pl.DataFrame:
         """Create summary DataFrame for per-label agreement."""
         tables: dict[str, pl.DataFrame] = {}
@@ -332,9 +334,7 @@ class UnifiedMetricsPipeline:
 
                 scores = all_scores.scores[annotator][annotator_2]
 
-                if annotator_2 == "ground_truth" and not self._is_common_calculator(
-                    all_scores
-                ):
+                if annotator_2 == "ground_truth" and not common:
                     common_tasks = (
                         data.filter(pl.col(annotator).is_not_null())
                         .filter(pl.col(annotator_2).is_not_null())
@@ -402,11 +402,6 @@ class UnifiedMetricsPipeline:
         master_table = master_table.with_columns(pl.lit(trader_value).alias("trader"))
 
         return master_table
-
-    def _is_common_calculator(self, all_scores: AllPairScores) -> bool:
-        """Check if this was calculated with common=True."""
-        # This is a bit of a hack - we track this via the pipeline, not the scores
-        return False  # Default to False, caller should track this
 
     def _create_gt_breakdown(
         self, df: pl.DataFrame, filename: str, common: bool
