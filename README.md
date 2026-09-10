@@ -139,6 +139,43 @@ uv run python combine_projects.py \
 `--output_dir` defaults to `combined_metrics`; `--jsonl_paths` is optional and
 takes one or more files.
 
+## Deployment
+
+The app is deployed as the Docker Compose service defined in `docker-compose.yaml`.
+
+1. Clone the repo on the host and create `.env` there by hand. It is gitignored
+   and is never baked into the image — Compose injects it at runtime via
+   `env_file`, so the container reads whatever is on the host at start time.
+
+2. Start it:
+   ```bash
+   docker compose up -d --build
+   ```
+   `restart: unless-stopped` means the service comes back on its own after a
+   host reboot or a crash.
+
+3. Redeploy after changes:
+   ```bash
+   git pull && docker compose up -d --build
+   ```
+   Rotating credentials only needs `docker compose up -d` after editing `.env`;
+   no rebuild is required.
+
+### Network exposure
+
+Compose publishes port 8501 and **the app has no authentication of its own**.
+Anyone who can reach that port can read every annotation in `app/data/` and
+trigger Label Studio fetches using the configured API key. Only bind it to
+localhost or a private network, and put a reverse proxy with authentication in
+front of it before exposing it more widely.
+
+### Data and backups
+
+`./app/data` is bind-mounted into the container and holds everything worth
+keeping: the fetched JSONL files, all generated `*_metrics/` directories, and
+`reviewer_config.json`. The rest of the container is disposable and rebuilt
+from the image. Back up that one directory.
+
 ## Scripts Reference
 
 | Script | Description |
