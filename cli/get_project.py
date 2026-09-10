@@ -28,11 +28,49 @@ OPTIONAL_STATE_FLAGS = [
     "action_optional_task_flags",
 ]
 
-# GT Verifier user IDs -> emails
-GT_VERIFIER_IDS = {
-    73379: "alissa@zap.xyz",
-    73374: "tony@zap.xyz",
-}
+# GT verifiers are read from reviewer_config.json so that user IDs and emails
+# stay out of the source tree. Expected shape:
+#     {"gt_verifiers": {"73379": "someone@example.com"}}
+REVIEWER_CONFIG_SEARCH_PATHS = [
+    os.path.join("app", "data", "reviewer_config.json"),
+    "reviewer_config.json",
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "app",
+        "data",
+        "reviewer_config.json",
+    ),
+]
+
+
+def load_gt_verifier_ids() -> dict[int, str]:
+    """Load the GT verifier user ID -> email mapping from reviewer_config.json.
+
+    Returns an empty mapping if no config is found, in which case annotations
+    are still fetched but `gt_accepted_by` is left unset.
+    """
+    for path in REVIEWER_CONFIG_SEARCH_PATHS:
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            config = json.load(f)
+        verifiers = config.get("gt_verifiers", {})
+        if verifiers:
+            return {int(user_id): email for user_id, email in verifiers.items()}
+        logger.warning(
+            "No 'gt_verifiers' entry in %s; gt_accepted_by will be unset", path
+        )
+        return {}
+
+    logger.warning(
+        "No reviewer_config.json found; gt_accepted_by will be unset. "
+        "Add a 'gt_verifiers' mapping to app/data/reviewer_config.json."
+    )
+    return {}
+
+
+GT_VERIFIER_IDS = load_gt_verifier_ids()
 
 
 def get_project_metadata(client: LabelStudio, project_name: str):

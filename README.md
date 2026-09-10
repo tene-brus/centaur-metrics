@@ -1,4 +1,4 @@
-# Human Signal Ops
+# Centaur Metrics
 
 Tools for calculating inter-annotator agreement metrics from Label Studio annotation projects.
 
@@ -13,10 +13,15 @@ The project uses [uv](https://docs.astral.sh/uv/) and requires Python >= 3.12.
    Add `--group dev` (or `uv sync --all-groups`) if you also want `pytest` and `pre-commit`.
 
 2. Create a `.env` file with your Label Studio credentials:
+   ```bash
+   cp .env.example .env   # then fill in the two values
    ```
-   LABEL_STUDIO_URL=https://your-label-studio-instance.com
-   LABEL_STUDIO_API_KEY=your-api-key
-   ```
+   | Variable | Description |
+   |----------|-------------|
+   | `LABEL_STUDIO_URL` | Base URL of your Label Studio instance |
+   | `LABEL_STUDIO_API_KEY` | API key for that instance |
+
+   These are the only environment variables the code reads (`cli/get_project.py`).
 
 3. (Optional) Install the pre-commit hooks:
    ```bash
@@ -42,10 +47,34 @@ centaur-metrics/
 --- merge_csvs.py           # Merge per-trader CSV files
 --- combine_projects.py     # Combine metrics from two projects
 --- get_metrics.sh          # End-to-end pipeline for one JSONL file
---- update_projects.sh      # Fetch the predefined projects
+--- update_projects.sh      # Fetch one or more projects
+--- .env.example            # Template for the required env vars
 --- Dockerfile              # Streamlit app image
 --- docker-compose.yaml     # Runs the app on port 8501
 ```
+
+## Configuration
+
+Beyond the two environment variables, runtime configuration lives in
+`app/data/reviewer_config.json`. It is gitignored — it holds real user IDs and
+emails — and is created on first use.
+
+```json
+{
+  "global_exclusions": ["reviewer@example.com"],
+  "project_reviewers": {"project_name": ["reviewer@example.com"]},
+  "gt_verifiers": {"12345": "verifier@example.com"}
+}
+```
+
+| Key | Purpose | Managed by |
+|-----|---------|------------|
+| `global_exclusions` | Annotators excluded from metrics in every project | Reviewer Config page |
+| `project_reviewers` | Annotators excluded from one project only | Reviewer Config page |
+| `gt_verifiers` | Label Studio user ID -> email for whoever accepts ground truth, used to fill `gt_accepted_by` during fetch | Hand-edited |
+
+`gt_verifiers` is read by `cli/get_project.py`. If it is missing, fetching still
+works but `gt_accepted_by` is left unset, and the CLI logs a warning saying so.
 
 ## Usage
 
@@ -84,22 +113,17 @@ one `<name>_metrics/` directory per project.
 ### Option 3: Shell Scripts
 
 #### `update_projects.sh`
-Fetches the latest annotation data from Label Studio for the projects hardcoded
-in the script.
+Fetches the latest annotation data from Label Studio for one or more projects.
 ```bash
-./update_projects.sh
+./update_projects.sh "trade extraction - signal1 - A" "trade extraction - signal1 - B"
 ```
 
 #### `get_metrics.sh`
-Runs the full pipeline for the JSONL file set in `DATA_PATH` at the top of the
-script: the unified metrics pass, then a merge of every per-trader CSV
-directory it produces.
+Runs the full pipeline for a JSONL file: the unified metrics pass, then a merge
+of every per-trader CSV directory it produces.
 ```bash
-./get_metrics.sh
+./get_metrics.sh trade_extraction_signal1_a.jsonl
 ```
-
-> `get_metrics_new.sh` is dead — it still calls the removed `src.cli.metrics`
-> module, which was replaced by `metrics_unified.py`. Use `get_metrics.sh`.
 
 ### Option 4: Individual Scripts
 
@@ -186,7 +210,7 @@ Editing `.env` needs only `docker compose up -d`; no rebuild is required.
 | `metrics_unified.py` | Compute all agreement metrics in a single pass |
 | `merge_csvs.py` | Merge per-trader CSVs into a single file |
 | `combine_projects.py` | Combine metrics from two projects |
-| `update_projects.sh` | Fetch the predefined Label Studio projects |
+| `update_projects.sh` | Fetch one or more Label Studio projects by name |
 | `get_metrics.sh` | Metrics + merge pipeline for one JSONL file |
 
 ## Output Files

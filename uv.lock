@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version < '4'",
@@ -113,6 +113,49 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fb/44/ca1675be2a83aeee1886ab745b28cda92093066590233cc501890eb8417a/cachetools-6.2.2.tar.gz", hash = "sha256:8e6d266b25e539df852251cfd6f990b4bc3a141db73b939058d809ebd2590fc6", size = 31571, upload-time = "2025-11-13T17:42:51.465Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e6/46/eb6eca305c77a4489affe1c5d8f4cae82f285d9addd8de4ec084a7184221/cachetools-6.2.2-py3-none-any.whl", hash = "sha256:6c09c98183bf58560c97b2abfcedcbaf6a896a490f534b031b661d3723b45ace", size = 11503, upload-time = "2025-11-13T17:42:50.232Z" },
+]
+
+[[package]]
+name = "centaur-metrics"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "krippendorff" },
+    { name = "label-studio-sdk" },
+    { name = "matplotlib" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "statsmodels" },
+    { name = "streamlit" },
+    { name = "tqdm" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pre-commit" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "krippendorff", specifier = ">=0.8.1" },
+    { name = "label-studio-sdk", specifier = ">=2.0.11" },
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "polars", specifier = ">=1.34.0" },
+    { name = "pydantic", specifier = "==2.12" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "statsmodels", specifier = ">=0.14.5" },
+    { name = "streamlit", specifier = ">=1.52.0" },
+    { name = "tqdm", specifier = ">=4.67.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pytest", specifier = ">=9.0.2" },
 ]
 
 [[package]]
@@ -452,45 +495,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
-]
-
-[[package]]
-name = "human-signal-ops"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "krippendorff" },
-    { name = "label-studio-sdk" },
-    { name = "matplotlib" },
-    { name = "polars" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "statsmodels" },
-    { name = "streamlit" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pre-commit" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "krippendorff", specifier = ">=0.8.1" },
-    { name = "label-studio-sdk", specifier = ">=2.0.11" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "polars", specifier = ">=1.34.0" },
-    { name = "pydantic", specifier = "==2.12" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "statsmodels", specifier = ">=0.14.5" },
-    { name = "streamlit", specifier = ">=1.52.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pre-commit", specifier = ">=4.5.1" },
-    { name = "pytest", specifier = ">=9.0.2" },
 ]
 
 [[package]]

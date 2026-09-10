@@ -1,12 +1,17 @@
 #!/bin/bash
+# Run the full metrics pipeline for a JSONL file, then merge the per-trader CSVs.
+#
+# Usage: ./get_metrics.sh <jsonl_filename>
 
-# if [ -z "$1" ]; then
-#     echo "Usage: ./get_metrics.sh <jsonl_filename>"
-#     echo "Example: ./get_metrics.sh trade_extraction_signal1_b.jsonl"
-#     exit 1
-# fi
+set -euo pipefail
 
-DATA_PATH="trade_extraction_signal1_a.jsonl"
+if [ "$#" -ne 1 ]; then
+    echo "Usage: ./get_metrics.sh <jsonl_filename>"
+    echo "Example: ./get_metrics.sh trade_extraction_signal1_a.jsonl"
+    exit 1
+fi
+
+DATA_PATH="$1"
 # Extract base name without extension for metrics directory
 METRICS_DIR="${DATA_PATH%.jsonl}_metrics"
 
