@@ -141,40 +141,42 @@ takes one or more files.
 
 ## Deployment
 
-The app is deployed as the Docker Compose service defined in `docker-compose.yaml`.
+The app ships as a container built from the `Dockerfile`. Any platform that can
+build and run it works — Docker Compose on a VM, or a managed platform such as
+Railway, Fly, Cloud Run or ECS. The requirements below are what the container
+needs from its host, whichever one you pick.
 
-1. Clone the repo on the host and create `.env` there by hand. It is gitignored
-   and is never baked into the image — Compose injects it at runtime via
-   `env_file`, so the container reads whatever is on the host at start time.
+**Runtime contract**
 
-2. Start it:
-   ```bash
-   docker compose up -d --build
-   ```
-   `restart: unless-stopped` means the service comes back on its own after a
-   host reboot or a crash.
+| Requirement | Detail |
+|-------------|--------|
+| Build | The repo root `Dockerfile`. No build args or build-time secrets. |
+| Env vars | `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY`, injected at runtime. They are never baked into the image. |
+| Port | The container listens on `8501` (pinned via `STREAMLIT_SERVER_PORT`). If your platform injects a `$PORT`, override that env var to match. |
+| Persistent storage | A volume mounted at `/workspace/app/data`. See below — without one you lose data on every redeploy. |
+| Health | `GET /` returns 200 once Streamlit is up. |
 
-3. Redeploy after changes:
-   ```bash
-   git pull && docker compose up -d --build
-   ```
-   Rotating credentials only needs `docker compose up -d` after editing `.env`;
-   no rebuild is required.
+**Persistent storage.** `app/data` holds everything worth keeping: fetched
+JSONL files, generated `*_metrics/` directories, and `reviewer_config.json`.
+There is no database — that directory is the entire application state, and the
+rest of the container is disposable. It must be a real volume; on platforms
+with ephemeral filesystems, a redeploy silently wipes it otherwise. Back it up.
 
-### Network exposure
+**Network exposure.** The app has **no authentication of its own**. Anyone who
+can reach it can read every annotation in `app/data` and trigger Label Studio
+fetches using the configured API key. Keep it on a private network, or put a
+reverse proxy or the platform's access control in front of it.
 
-Compose publishes port 8501 and **the app has no authentication of its own**.
-Anyone who can reach that port can read every annotation in `app/data/` and
-trigger Label Studio fetches using the configured API key. Only bind it to
-localhost or a private network, and put a reverse proxy with authentication in
-front of it before exposing it more widely.
+**Reference: Docker Compose.** `docker-compose.yaml` wires all of the above up
+for a single host — `env_file` for the credentials, a bind mount for
+`./app/data`, and `restart: unless-stopped`. Create `.env` on the host first
+(it is gitignored and never committed), then:
 
-### Data and backups
+```bash
+docker compose up -d --build          # start, and redeploy after a git pull
+```
 
-`./app/data` is bind-mounted into the container and holds everything worth
-keeping: the fetched JSONL files, all generated `*_metrics/` directories, and
-`reviewer_config.json`. The rest of the container is disposable and rebuilt
-from the image. Back up that one directory.
+Editing `.env` needs only `docker compose up -d`; no rebuild is required.
 
 ## Scripts Reference
 
