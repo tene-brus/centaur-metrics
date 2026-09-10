@@ -56,8 +56,10 @@ centaur-metrics/
 ## Configuration
 
 Beyond the two environment variables, runtime configuration lives in
-`app/data/reviewer_config.json`. It is gitignored — it holds real user IDs and
-emails — and is created on first use.
+`app/data/reviewer_config.json`. It is gitignored, because it holds real user
+IDs and emails. The Reviewer Config page writes the file the first time you
+save an exclusion; on a fresh install it does not exist yet, so create it by
+hand if you need `gt_verifiers` before then.
 
 ```json
 {
@@ -75,6 +77,33 @@ emails — and is created on first use.
 
 `gt_verifiers` is read by `cli/get_project.py`. If it is missing, fetching still
 works but `gt_accepted_by` is left unset, and the CLI logs a warning saying so.
+
+### Finding Label Studio user IDs
+
+`gt_verifiers` is keyed by numeric Label Studio user ID, which the web UI does
+not show. To list the ID and email of every user on the instance:
+
+```bash
+uv run python -c "
+import os
+from dotenv import load_dotenv
+from label_studio_sdk import LabelStudio
+
+load_dotenv()
+client = LabelStudio(
+    base_url=os.getenv('LABEL_STUDIO_URL'), api_key=os.getenv('LABEL_STUDIO_API_KEY')
+)
+for user in client.users.list():
+    print(user.id, user.email)
+"
+```
+
+Take the IDs of whoever accepts ground truth and add them as JSON *string* keys
+(`"73379"`, not `73379`) — the loader casts them back to ints:
+
+```json
+"gt_verifiers": {"73379": "verifier@example.com"}
+```
 
 ## Usage
 
