@@ -32,8 +32,14 @@ class TestDataLoader:
         # task_4 has num_annotations=0 and should be filtered
         assert data.filter(pl.col("num_annotations") == 0).shape[0] == 0
 
-    def test_load_filters_null_predictions(self, tmp_path):
-        """Should filter out rows with null predictions."""
+    def test_load_keeps_rows_with_null_predictions(self, tmp_path):
+        """Should keep rows with null predictions.
+
+        `predictions` is just another annotator column, so null handling belongs
+        at the pair level (see UnifiedPairwiseCalculator._compute_pair), not here.
+        Dropping these rows would also remove their human annotations from every
+        other pairing, making annotation task counts disagree with GT counts.
+        """
         jsonl_path = tmp_path / "test.jsonl"
         content = [
             {
@@ -58,8 +64,9 @@ class TestDataLoader:
         loader = DataLoader(str(jsonl_path))
         data = loader.load()
 
-        # Only task_2 should remain
-        assert data.shape[0] == 1
+        # Both tasks should remain; only the predictions cell stays null
+        assert data.shape[0] == 2
+        assert data.filter(pl.col("predictions").is_null()).shape[0] == 1
 
     def test_load_drops_id_column(self, tmp_path):
         """Should drop 'id' column if present."""
